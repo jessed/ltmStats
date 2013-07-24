@@ -796,7 +796,7 @@ sub mk_charts() {
 
   ## Memory usage chart
   my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtMem->set_title ( name => 'Memory Utilization' );
+  $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 14, bold => 0} );
   $chtMem->set_x_axis( name => 'Time (Seconds)' );
   $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0);
   $chtMem->set_legend( position => 'none' );
@@ -811,7 +811,7 @@ sub mk_charts() {
 
   ## Client throughput chart
   my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTput->set_title ( name => 'Client Throughput' );
+  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 14, bold => 0} );
   $chtTput->set_x_axis( name => 'Time (Seconds)' );
   $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
   $chtTput->set_legend( position => 'bottom' );
@@ -833,7 +833,7 @@ sub mk_charts() {
 
   ## Connection Rate
   my $chtCPS  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCPS->set_title ( name => 'Connection Rate' );
+  $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 14, bold => 0} );
   $chtCPS->set_x_axis( name => 'Time (Seconds)' );
   $chtCPS->set_y_axis( name => 'Connections/Second', min => 0);
   $chtCPS->set_legend( position => 'bottom' );
@@ -855,7 +855,7 @@ sub mk_charts() {
 
   ## Concurrency
   my $chtCC   = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCC->set_title ( name => 'Concurrency' );
+  $chtCC->set_title ( name => 'Concurrency', name_font => { size => 14, bold => 0} );
   $chtCC->set_x_axis( name => 'Time (Seconds)' );
   $chtCC->set_y_axis( name => 'Concurrent Connections', min => 0);
   $chtCC->set_legend( position => 'bottom' );
