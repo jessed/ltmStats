@@ -736,7 +736,7 @@ sub mk_perf_xls() {
   $charts->set_zoom(80);
   $charts->set_column('A:A', 30);
   $charts->set_column('B:D', 10);
-  $charts->set_column('E:E', 20);
+  $charts->set_column('E:E', 15);
   $charts->set_column('F:G', 10);
   $charts->activate();
 
