@@ -244,7 +244,6 @@ while ($elapsed <= $testLen) {
                                               - $oldData{cPktsOut}) / $loopTime);
     $cBitsIn    = sprintf("%.0f", (($cBytesIn * 8)  / 1000000));
     $cBitsOut   = sprintf("%.0f", (($cBytesOut * 8) / 1000000));
-  }
 
 # Print updates to the screen during the test
     format STDOUT_TOP =
@@ -268,6 +267,7 @@ $elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $s
 #$elapsed, $cpuUtil, $tmmUtil, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $cPktsIn, $cPktsOut
 #.
 #    write;
+  }
 
 
   # update 'old' data with the current values to calculate delta next cycle

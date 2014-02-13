@@ -201,7 +201,7 @@ if ($xlsName !~ '/dev/null') {
   $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
   $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
   $charts->write("D2", $result->{$staticOids{ltmBuild}},    $formats{text});
-  $charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{text});
+  $charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{decimal0});
   $charts->write("F2", $result->{$staticOids{cpuCount}},    $formats{text});
   $charts->write("G2", $result->{$staticOids{bladeCount}},  $formats{text});
 }
@@ -458,7 +458,7 @@ if ($DATAOUT) {
 sub detect_test() {
   my $snmp = shift;
   my $oids = shift;
-  my $pkts = 5000;
+  my $pkts = 500;
 
   print "\nWaiting for test to begin...\n";
 
@@ -724,7 +724,6 @@ sub mk_perf_xls() {
   $hdrfmts{'text'}     = $workbook->add_format(align => 'center');
   $hdrfmts{'headers'}  = $workbook->add_format(align => 'center', bold => 1, bottom => 1);
   $hdrfmts{'standard'} = $workbook->add_format(align => 'center', num_format => '#,##0');
-  # using '0' to hide decimals isn't working... trying the MS format index ID instead
   $hdrfmts{'decimal0'} = $workbook->add_format(align => 'center', num_format => '#,##0');
   $hdrfmts{'decimal1'} = $workbook->add_format(align => 'center', num_format => '0.0');
   $hdrfmts{'decimal2'} = $workbook->add_format(align => 'center', num_format => '0.00');
@@ -733,7 +732,7 @@ sub mk_perf_xls() {
   ## create worksheets
   # the 'charts' worksheet will contain graphs using data from the 'summary' sheet.
   my $charts = $workbook->add_worksheet('charts');
-  $charts->set_zoom(80);
+  $charts->set_zoom(100);
   $charts->set_column('A:A', 30);
   $charts->set_column('B:D', 10);
   $charts->set_column('E:E', 15);
