@@ -4,7 +4,7 @@
 # Collects numerous statistics from a target BIP-IP while under test, and
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2008-2011
+# Copyright, F5 Networks, 2008-2014
 # Written by: Jesse Driskill, Product Management Engineer
 #####################################################
 
@@ -91,11 +91,12 @@ $VERBOSE && print("Host: ".$host."\nDuration: ".$testLen." seconds\nPolling Inte
 
 # Build the oid lists and varbind arrays
 my (@dataList, @errorList, @staticList, @rowData);
-my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
+my ($cCurConns, $cTotConns, $sCurConns, $sTotConns, $httpReq);
 my ($memUsed, $hMem, $dataVals, $errorVals, $col, $row, $numRows);
 my ($workbook, $summary, $raw_data, $chtdata, $charts);
-my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $cPktsIn, $cPktsOut)  = (0, 0, 0, 0, 0, 0);
+my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut)                       = (0, 0, 0, 0);
+my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut)                           = (0, 0, 0, 0);
 my ($cNewConns, $sNewConns, $ccPktsIn, $ccPktsOut, $cBitsIn, $cBitsOut) = (0, 0, 0, 0, 0, 0);
 my ($waPreComp, $waPostComp, $cacheHits, $cacheMiss, $cacheHitBytes)    = (0, 0, 0, 0, 0);
 my ($slept, $loopTime, $pollTime, $runTime, $lastLoopEnd, $loopTotal)   = (0, 0, 0, 0, 0, 0);
@@ -156,8 +157,16 @@ if ($pause && !$BYPASS) {
   sleep($pause);
 }
 
-open(OUT, '>output.csv');
-print OUT "Time, CPU, TMM, Mem (MB), Client CPS, Server CPS, In/Mbs, Out/Mbs, Pre-Compress Bytes/Sec, Post-Compress Bytes/Sec, Cache Hits, Cache Messes, Cache Hit MB/sec\n";
+#open(OUT, '>output.csv');
+#print OUT "Time, CPC, TMM, MemUsed, ". 
+#          "cBytesIn, cBytesOut, cPktsIn, cPktsOut, ".
+#          "sBytesIn, sBytesOut, sPktsIn, sPktsOut, ".
+#          "cCurConn, cTotConn, sCurConn, sTotConn, httpReq\n";
+
+#print OUT "Time, CPU, TMM, MemUsed, ".
+#          "Client CPS, Server CPS, In/Mbs, Out/Mbs, ".
+#          "Pre-Compress Bytes/Sec, Post-Compress Bytes/Sec, ".
+#          "Cache Hits, Cache Messes, Cache Hit MB/sec\n";
 
 # start active polling
 $pollTimer{'testStart'} = Time::HiRes::time();
@@ -201,8 +210,11 @@ while ($elapsed <= $testLen) {
   $hMem       = sprintf("%d", $memUsed / MB);
 
   # client and server current connections
-  $clientCurConns = $dataVals->{$dataOids{sysStatClientCurConns}};
-  $serverCurConns = $dataVals->{$dataOids{sysStatServerCurConns}};
+  $cCurConns = $dataVals->{$dataOids{sysStatClientCurConns}};
+  $cTotConns = $dataVals->{$dataOids{sysStatClientTotConns}};
+  $sCurConns = $dataVals->{$dataOids{sysStatServerCurConns}};
+  $sTotConns = $dataVals->{$dataOids{sysStatServerTotConns}};
+  $httpReq   = $dataVals->{$dataOids{sysStatHttpRequests}};
 
   # If requested, write the output file.
   #if ($DATAOUT) {
@@ -218,6 +230,8 @@ while ($elapsed <= $testLen) {
     $sNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerTotConns}} - $oldData{sTotConns}) / $loopTime);
     $cPktsIn    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientPktsIn}}   - $oldData{cPktsIn}) / $loopTime);
     $cPktsOut   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientPktsOut}}  - $oldData{cPktsOut}) / $loopTime);
+    $sPktsIn    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerPktsIn}}   - $oldData{sPktsIn}) / $loopTime);
+    $sPktsOut   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerPktsOut}}  - $oldData{sPktsOut}) / $loopTime);
     $waPreComp  = sprintf("%.0f", ($dataVals->{$dataOids{httpPreCompressBytes}}  - $oldData{waPreComp}) / $loopTime);
     $waPostComp = sprintf("%.0f", ($dataVals->{$dataOids{httpPostCompressBytes}} - $oldData{waPostComp}) / $loopTime);
     $cacheHits  = sprintf("%.0f", ($dataVals->{$dataOids{waCacheHits}}           - $oldData{waCacheHits}) / $loopTime);
@@ -231,24 +245,36 @@ while ($elapsed <= $testLen) {
     $postCompSec = sprintf("%.0f", ($waPostComp      / 1000000));
     $caHitBsec   = sprintf("%.0f", ($cacheHitBytes   / 1000000));
 
+    # write the data to the csv. This data will be used to populate the 'raw data' worksheet in one of the real test xlsx files
+#    print OUT
+#    "$elapsed, $cpuUtil, $tmmUtil, $memUsed,".
+#    "$dataVals->{$dataOids{sysStatClientBytesIn}},".
+#    "$dataVals->{$dataOids{sysStatClientBytesOut}},".
+#    "$dataVals->{$dataOids{sysStatClientPktsIn}},".
+#    "$dataVals->{$dataOids{sysStatClientPktsOut}},".
+#    "$dataVals->{$dataOids{sysStatServerBytesIn}},".
+#    "$dataVals->{$dataOids{sysStatServerBytesOut}},".
+#    "$dataVals->{$dataOids{sysStatServerPktsIn}},".
+#    "$dataVals->{$dataOids{sysStatServerPktsOut}},".
+#    "$dataVals->{$dataOids{sysStatClientCurConns}},".
+#    "$dataVals->{$dataOids{sysStatClientTotConns}},".
+#    "$dataVals->{$dataOids{sysStatServerCurConns}},".
+#    "$dataVals->{$dataOids{sysStatServerTotConns}},".
+#    "$dataVals->{$dataOids{sysStatHttpRequests}},".
+#    "\n";
+
+
 # Print updates to the screen during the test
-    format STDOUT_TOP =
- @>>>>  @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>  @>>>>>>>  @>>>>>>>>    @>>>>>>>>   @>>>>>  @>>>>>  @>>>>>>>>>>>>
-"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "In/Mbs", "Out/Mbs", "preComp", "postComp", "Hits", "Misses", "Hits MB/sec"
+format STDOUT_TOP =
+ @>>>>  @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
+"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
 .
-
-    format =
-@>>>>> @##.## @##.##    @#######  @########  @########  @#####  @#####    @##########  @########  @#####  @######    @#######
-$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $waPreComp, $waPostComp, $cacheHits, $cacheMiss, $caHitBsec
+format =
+@>>>>> @##.## @##.##    @#######  @########  @########  @#########  @#########   @#####    @#####
+$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cCurConns, $sCurConns, $cBitsIn, $cBitsOut
 .
-     write;
+write;
 
-print OUT "$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $waPreComp, $waPostComp, $cacheHits, $cacheMiss, $caHitBsec\n";
-
-# @>>>>  @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
-#"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
-#@>>>>> @##.## @##.##    @#######  @########  @########  @#########  @#########   @#####    @#####
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
   }
 
 
@@ -266,6 +292,8 @@ print OUT "$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn
   $oldData{sBytesOut}       = $dataVals->{$dataOids{sysStatServerBytesOut}};
   $oldData{cPktsIn}         = $dataVals->{$dataOids{sysStatClientPktsIn}};
   $oldData{cPktsOut}        = $dataVals->{$dataOids{sysStatClientPktsOut}};
+  $oldData{sPktsIn}         = $dataVals->{$dataOids{sysStatServerPktsIn}};
+  $oldData{sPktsOut}        = $dataVals->{$dataOids{sysStatServerPktsOut}};
   $oldData{cTotConns}       = $dataVals->{$dataOids{sysStatClientTotConns}};
   $oldData{sTotConns}       = $dataVals->{$dataOids{sysStatServerTotConns}};
   $oldData{waPreComp}       = $dataVals->{$dataOids{httpPreCompressBytes}};
@@ -293,7 +321,7 @@ print OUT "$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn
 } 
 
 # close the file we opened for output
-close(OUT);
+#close(OUT);
 
 
 ##
@@ -348,6 +376,7 @@ sub get_f5_oids() {
       'sysStatServerPktsOut'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
       'sysStatServerTotConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
       'sysStatServerCurConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
+      'sysStatHttpRequests'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.56.0',
       'httpPreCompressBytes'    => '.1.3.6.1.4.1.3375.2.1.1.2.22.2.0',
       'httpPostCompressBytes'   => '.1.3.6.1.4.1.3375.2.1.1.2.22.3.0',
       'httpNullCompressBytes'   => '.1.3.6.1.4.1.3375.2.1.1.2.22.4.0',

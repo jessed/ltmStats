@@ -277,121 +277,76 @@ while ($elapsed <= $testLen) {
   $hMem       = sprintf("%d", $memUsed / MB); # get Memory usage in MB
 
   # client and server current connections
-  $clientCurConns = $dataVals->{$dataOids{sysStatClientCurConns}};
-  $serverCurConns = $dataVals->{$dataOids{sysStatServerCurConns}};
-
-  # If requested, write the output file.
-  if ($DATAOUT) {
-    $row++;
-    $raw_data->write($row, 0, $runTime, $formats{decimal4});
-    $raw_data->write($row, 1, $cpuUtil, $formats{decimal2});
-    $raw_data->write($row, 2, $tmmUtil, $formats{decimal2});
-
-    $raw_data->write( $row, 
-                      3,
-                      [$memUsed,
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientBytesIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientBytesOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientPktsIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientPktsOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerBytesIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerBytesOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerPktsIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerPktsOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientCurConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientTotConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerCurConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerTotConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatHttpRequests}})],
-                     $formats{'standard'});
-  }
+  $clientCurConns = $dataVals->{$dataOids{tmmClientCurConns}}; # + $dataVals->{$dataOids{pvaClientCurConns}};
+  $serverCurConns = $dataVals->{$dataOids{tmmServerCurConns}}; # + $dataVals->{$dataOids{pvaServerCurConns}};
+  # total connections
+  $clientTotConns = $dataVals->{$dataOids{tmmClientTotConns}}; # + $dataVals->{$dataOids{pvaClientTotConns}};
+  $serverTotConns = $dataVals->{$dataOids{tmmServerTotConns}}; # + $dataVals->{$dataOids{pvaServerTotConns}};
+  # Throughput
+  $cBytesIn       = $dataVals->{$dataOids{tmmClientBytesIn}}  + $dataVals->{$dataOids{pvaClientBytesIn}};
+  $cBytesOut      = $dataVals->{$dataOids{tmmClientBytesOut}} + $dataVals->{$dataOids{pvaClientBytesOut}};
+  $sBytesIn       = $dataVals->{$dataOids{tmmServerBytesIn}}  + $dataVals->{$dataOids{pvaServerBytesIn}};
+  $sBytesOut      = $dataVals->{$dataOids{tmmServerBytesOut}} + $dataVals->{$dataOids{pvaServerBytesOut}};
+  # Packet rates
+  $cPktsIn        = $dataVals->{$dataOids{tmmClientPktsIn}}   + $dataVals->{$dataOids{pvaClientPktsIn}};
+  $cPktsOut       = $dataVals->{$dataOids{tmmClientPktsOut}}  + $dataVals->{$dataOids{pvaClientPktsOut}};
+  $sPktsIn        = $dataVals->{$dataOids{tmmServerPktsIn}}   + $dataVals->{$dataOids{pvaServerPktsIn}};
+  $sPktsOut       = $dataVals->{$dataOids{tmmServerPktsOut}}  + $dataVals->{$dataOids{pvaServerPktsOut}};
 
   if ($elapsed) { 
     # pre-format some vars
-    $cBytesIn   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientBytesIn}} - 
-                                    $oldData{cBytesIn}) / $loopTime);
-    $cBytesOut  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientBytesOut}} -
-                                    $oldData{cBytesOut}) / $loopTime);
-    $sBytesIn   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerBytesIn}} -
-                                    $oldData{sBytesIn}) / $loopTime);
-    $sBytesOut  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerBytesOut}} -
-                                    $oldData{sBytesOut}) / $loopTime);
-    $cNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientTotConns}} -
-                                    $oldData{cTotConns}) / $loopTime);
-    $sNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerTotConns}} -
-                                    $oldData{sTotConns}) / $loopTime);
-    $cPktsIn    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientPktsIn}} -
-                                    $oldData{cPktsIn}) / $loopTime);
-    $cPktsOut   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientPktsOut}} -
-                                    $oldData{cPktsOut}) / $loopTime);
-    $sPktsIn    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerPktsIn}} -
-                                    $oldData{sPktsIn}) / $loopTime);
-    $sPktsOut   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerPktsOut}} -
-                                    $oldData{sPktsOut}) / $loopTime);
-    $httpReq    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatHttpRequests}} -
-                                    $oldData{httpReq}) / $loopTime);
-    $cBitsIn    = sprintf("%.0f", (($cBytesIn * 8)  / 1000000));
-    $cBitsOut   = sprintf("%.0f", (($cBytesOut * 8) / 1000000));
-    $sBitsIn    = sprintf("%.0f", (($sBytesIn * 8)  / 1000000));
-    $sBitsOut   = sprintf("%.0f", (($sBytesOut * 8) / 1000000));
+    $httpReq    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatHttpRequests}} - $oldData{httpReq}) / $loopTime);
+    $cNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{tmmClientTotConns}} - $oldData{cTotConns}) / $loopTime);
+    $sNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{tmmServerTotConns}} - $oldData{sTotConns}) / $loopTime);
+    $cBitsIn    = sprintf("%.0f", (($cBytesIn  - $oldData{cBytesIn})  * 8) / $loopTime / 1000000);
+    $cBitsOut   = sprintf("%.0f", (($cBytesOut - $oldData{cBytesOut}) * 8) / $loopTime / 1000000);
+    $sBitsIn    = sprintf("%.0f", (($sBytesIn  - $oldData{sBytesIn})  * 8) / $loopTime / 1000000);
+    $sBitsOut   = sprintf("%.0f", (($sBytesOut - $oldData{sBytesOut}) * 8) / $loopTime / 1000000);
     $tBitsIn    = $cBitsIn + $sBitsIn;
     $tBitsOut   = $cBitsOut + $sBitsOut;
-  }  
 
+    if ( $elapsed > 0) {
+    # This 'format' displays the standard data
 
-  if ( $elapsed > 0) {
-  # This 'format' displays the standard data
-
-    format STDOUT_TOP =
+      format STDOUT_TOP =
  @>>>>>     @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
 "Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "HTTP_req", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
 .
 
-    format =
-@####.###  @##.## @##.##    @#######  @########  @########  @####### @#########  @#########   @#####    @#####
+      format =
+@####.###  @##.## @##.##    @#######  @########  @########  @####### @#########  @#########    @#####    @#####
 $elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $httpReq, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
 .
-     write;
-  }
+      write;
+    }
 
-#    format STDOUT_TOP =
-# @>>>>>     @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
-#"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
-#.
-#
-#    format =
-#@####.###  @##.## @##.##    @#######  @########  @########  @#########  @#########   @#####    @#####
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
-#.
-#     write;
-#  }
 
-## This 'format' displays the standard data, but substitutes packets/second for throughput
-#    format STDOUT_TOP =
-#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
-#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "In/Mbps", "Out/Mbps", "cPPS/in", "sPPS/in"
-#.
-#
-#    format =
-#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $cPktsIn, $sPktsIn 
-#.
-#    write;
-#  }
+    # If requested, write the output file.
+    if ($DATAOUT) {
+      $row++;
+      $raw_data->write($row, 0, $runTime, $formats{decimal4});
+      $raw_data->write($row, 1, $cpuUtil, $formats{decimal2});
+      $raw_data->write($row, 2, $tmmUtil, $formats{decimal2});
 
-## This 'format' emphasizes connections and PPS
-#    format STDOUT_TOP =
-#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
-#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "Client Conns", "Server Conns", "cPPS/in", "sPPS/in"
-#.
-#
-#    format =
-#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cPktsIn, $sPktsIn
-#.
-#    write;
-#  }
-
+      $raw_data->write( $row, 
+                        3,
+                        [$memUsed,
+                        sprintf("%.0f", $cBytesIn),
+                        sprintf("%.0f", $cBytesOut),
+                        sprintf("%.0f", $cPktsIn),
+                        sprintf("%.0f", $cPktsOut),
+                        sprintf("%.0f", $sBytesIn),
+                        sprintf("%.0f", $sBytesOut),
+                        sprintf("%.0f", $sPktsIn),
+                        sprintf("%.0f", $sPktsOut),
+                        sprintf("%.0f", $clientCurConns),
+                        sprintf("%.0f", $clientTotConns),
+                        sprintf("%.0f", $serverCurConns),
+                        sprintf("%.0f", $serverTotConns),
+                        sprintf("%.0f", $dataVals->{$dataOids{sysStatHttpRequests}})],
+                       $formats{'standard'});
+    }
+  }  
 
   # update 'old' data with the current values to calculate delta next cycle
   $oldData{ssCpuRawUser}   = $dataVals->{$dataOids{ssCpuRawUser}};
@@ -401,17 +356,25 @@ $elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $httpReq, $clientCu
   $oldData{tmmTotalCycles} = $dataVals->{$dataOids{tmmTotalCycles}};
   $oldData{tmmIdleCycles}  = $dataVals->{$dataOids{tmmIdleCycles}};
   $oldData{tmmSleepCycles} = $dataVals->{$dataOids{tmmSleepCycles}};
-  $oldData{cBytesIn}       = $dataVals->{$dataOids{sysStatClientBytesIn}};
-  $oldData{cBytesOut}      = $dataVals->{$dataOids{sysStatClientBytesOut}};
-  $oldData{sBytesIn}       = $dataVals->{$dataOids{sysStatServerBytesIn}};
-  $oldData{sBytesOut}      = $dataVals->{$dataOids{sysStatServerBytesOut}};
-  $oldData{sPktsIn}        = $dataVals->{$dataOids{sysStatServerPktsIn}};
-  $oldData{sPktsOut}       = $dataVals->{$dataOids{sysStatServerPktsOut}};
-  $oldData{cPktsIn}        = $dataVals->{$dataOids{sysStatClientPktsIn}};
-  $oldData{cPktsOut}       = $dataVals->{$dataOids{sysStatClientPktsOut}};
-  $oldData{cTotConns}      = $dataVals->{$dataOids{sysStatClientTotConns}};
-  $oldData{sTotConns}      = $dataVals->{$dataOids{sysStatServerTotConns}};
+  $oldData{cBytesIn}       = $cBytesIn;
+  $oldData{cBytesOut}      = $cBytesOut;
+  $oldData{sBytesIn}       = $sBytesIn;
+  $oldData{sBytesOut}      = $sBytesOut;
+  $oldData{sPktsIn}        = $sPktsIn;
+  $oldData{sPktsOut}       = $sPktsOut;
+  $oldData{cPktsIn}        = $cPktsIn;
+  $oldData{cPktsOut}       = $cPktsOut;
+  $oldData{cTotConns}      = $clientTotConns;
+  $oldData{sTotConns}      = $serverTotConns;
   $oldData{httpReq}        = $dataVals->{$dataOids{sysStatHttpRequests}};
+  #$oldData{cBytesIn}       = $dataVals->{$dataOids{tmmClientBytesIn}}  + $dataVals->{$dataOids{pvaClientBytesIn}};
+  #$oldData{cBytesOut}      = $dataVals->{$dataOids{tmmClientBytesOut}} + $dataVals->{$dataOids{pvaClientBytesOut}};
+  #$oldData{sBytesIn}       = $dataVals->{$dataOids{tmmServerBytesIn}}  + $dataVals->{$dataOids{pvaServerBytesIn}};
+  #$oldData{sBytesOut}      = $dataVals->{$dataOids{tmmServerBytesOut}} + $dataVals->{$dataOids{pvaServerBytesOut}};
+  #$oldData{sPktsIn}        = $dataVals->{$dataOids{tmmServerPktsIn}}   + $dataVals->{$dataOids{pvaServerPktsIn}};
+  #$oldData{sPktsOut}       = $dataVals->{$dataOids{tmmServerPktsOut}}  + $dataVals->{$dataOids{pvaServerPktsOut}};
+  #$oldData{cPktsIn}        = $dataVals->{$dataOids{tmmClientPktsIn}}   + $dataVals->{$dataOids{pvaClientPktsIn}};
+  #$oldData{cPktsOut}       = $dataVals->{$dataOids{tmmClientPktsOut}}  + $dataVals->{$dataOids{pvaClientPktsOut}};
 
   if ($DEBUG) {
     format STDERR_TOP =
@@ -463,12 +426,12 @@ sub detect_test() {
   print "\nWaiting for test to begin...\n";
 
   while (1) {
-    my $r1 = $snmp->get_request($$oids{sysStatClientPktsIn});
+    my $r1 = $snmp->get_request($$oids{tmmClientPktsIn});
     sleep(4);
-    my $r2 = $snmp->get_request($$oids{sysStatClientPktsIn});
+    my $r2 = $snmp->get_request($$oids{tmmClientPktsIn});
 
-    my $delta = $r2->{$$oids{sysStatClientPktsIn}}- 
-                $r1->{$$oids{sysStatClientPktsIn}};
+    my $delta = $r2->{$$oids{tmmClientPktsIn}}- 
+                $r1->{$$oids{tmmClientPktsIn}};
   
     if ($delta > $pkts) {
       print "Start of test detected...\n\n";
@@ -620,27 +583,38 @@ sub get_f5_oids() {
       'tmmIdleCycles'           => '.1.3.6.1.4.1.3375.2.1.1.2.1.42.0',
       'tmmSleepCycles'          => '.1.3.6.1.4.1.3375.2.1.1.2.1.43.0',
       'tmmTotalMemoryUsed'      => '.1.3.6.1.4.1.3375.2.1.1.2.1.45.0',
-      'sysStatClientBytesIn'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.3.0',
-      'sysStatClientBytesOut'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.5.0',
-      'sysStatClientPktsIn'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.2.0',
-      'sysStatClientPktsOut'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.4.0',
-      'sysStatClientTotConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
-      'sysStatClientCurConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.8.0',
-      'sysStatServerBytesIn'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.10.0',
-      'sysStatServerBytesOut'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.12.0',
-      'sysStatServerPktsIn'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.9.0',
-      'sysStatServerPktsOut'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
-      'sysStatServerTotConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
-      'sysStatServerCurConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
+      'tmmClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.3.0',
+      'tmmClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.5.0',
+      'tmmClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.2.0',
+      'tmmClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.4.0',
+      'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
+      'tmmClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.8.0',
+      'tmmServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.10.0',
+      'tmmServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.12.0',
+      'tmmServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.9.0',
+      'tmmServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
+      'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
+      'tmmServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
       'sysStatHttpRequests'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.56.0',
-                );
-
+      'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.16.0',
+      'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.17.0',
+      'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.18.0',
+      'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.19.0',
+      'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.23.0',
+      'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.24.0',
+      'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.25.0',
+      'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.26.0',
+      'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.21.0',
+      'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.22.0',
+      'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.28.0',
+      'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.29.0',
+  );
   return(%oidlist);
 }
 
 sub get_profile_oids() {
   my %profileOids = ( 'userStatProfile1'  => '1.3.6.1.4.1.3375.2.2.6.19.2.3.1',
-                );
+  );
 
   return(%profileOids);
 }
@@ -734,6 +708,7 @@ sub mk_perf_xls() {
   ## create worksheets
   # the 'charts' worksheet will contain graphs using data from the 'summary' sheet.
   my $charts = $workbook->add_worksheet('charts');
+  $charts->hide_gridlines(2);
   $charts->set_zoom(100);
   $charts->set_column('A:A', 30);
   $charts->set_column('B:D', 10);
@@ -783,7 +758,7 @@ sub mk_charts() {
 
   ## CPU Usage chart
   my $chtCpu  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCpu->set_title ( name => 'CPU Utilization', name_font => { size => 14, bold => 0} );
+  $chtCpu->set_title ( name => 'CPU Utilization', name_font => { size => 12, bold => 0} );
   $chtCpu->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
   $chtCpu->set_y_axis( name => 'CPU Usage', min => 0, max => 100 );
   $chtCpu->set_legend( position => 'none' );
@@ -798,7 +773,7 @@ sub mk_charts() {
 
   ## Connection Rate
   my $chtCPS  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 14, bold => 0} );
+  $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 12, bold => 0} );
   $chtCPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
   $chtCPS->set_y_axis( name => 'Connections/Second', min => 0);
   $chtCPS->set_legend( position => 'bottom' );
@@ -818,9 +793,9 @@ sub mk_charts() {
   );
   $worksheet->insert_chart( 'E4', $chtCPS, 50, 0);
 
-  ## Client throughput chart
+  ## Throughput chart
   my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 14, bold => 0} );
+  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 12, bold => 0} );
   $chtTput->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
   $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
   $chtTput->set_legend( position => 'bottom' );
@@ -842,7 +817,7 @@ sub mk_charts() {
 
   ## Transaction Rate
   my $chtTPS  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTPS->set_title ( name => 'Transaction Rate', name_font => { size => 14, bold => 0} );
+  $chtTPS->set_title ( name => 'Transaction Rate', name_font => { size => 12, bold => 0} );
   $chtTPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
   $chtTPS->set_y_axis( name => 'Transactions/Second', min => 0);
   $chtTPS->set_legend( position => 'bottom' );
@@ -871,7 +846,7 @@ sub mk_charts() {
 
   ## Memory usage chart
   my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 14, bold => 0} );
+  $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 12, bold => 0} );
   $chtMem->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
   $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0);
   $chtMem->set_legend( position => 'none' );
@@ -886,7 +861,7 @@ sub mk_charts() {
 
   ## Concurrency
   my $chtCC   = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCC->set_title ( name => 'Concurrency', name_font => { size => 14, bold => 0} );
+  $chtCC->set_title ( name => 'Concurrency', name_font => { size => 12, bold => 0} );
   $chtCC->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
   $chtCC->set_y_axis( name => 'Concurrent Connections', min => 0);
   $chtCC->set_legend( position => 'bottom' );
@@ -968,4 +943,43 @@ END
 
   exit($code);
 }
+
+## Additional real-time output formats
+#    format STDOUT_TOP =
+# @>>>>>     @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
+#"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
+#.
+#
+#    format =
+#@####.###  @##.## @##.##    @#######  @########  @########  @#########  @#########   @#####    @#####
+#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
+#.
+#     write;
+#  }
+
+## This 'format' displays the standard data, but substitutes packets/second for throughput
+#    format STDOUT_TOP =
+#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
+#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "In/Mbps", "Out/Mbps", "cPPS/in", "sPPS/in"
+#.
+#
+#    format =
+#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
+#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $cPktsIn, $sPktsIn 
+#.
+#    write;
+#  }
+
+## This 'format' emphasizes connections and PPS
+#    format STDOUT_TOP =
+#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
+#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "Client Conns", "Server Conns", "cPPS/in", "sPPS/in"
+#.
+#
+#    format =
+#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
+#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cPktsIn, $sPktsIn
+#.
+#    write;
+#  }
 

@@ -15,6 +15,17 @@ dutStats.pl
   This is the version of the script that we typically make available 
   to customers or SEs (upon request).
 
+ltmStats-http.pl
+  Most recent 'complete' version of ltmStats. This should replace the current ltmStats.pl in the near-term.
+
+ltmStats-wa.pl
+  Development version containing significant syntax simplifications, as well as additional statistics data.
+  New statistics include ePVA throughput, connection, and packet stats, and web-acceleration stats related to
+  compression and caching.
+
+dutStats-wa.pl
+  A quick update of dutStats.pl to add web-acceleration data collection (compression and caching stats).
+
 archive.tar.gz
   Old versions of ltmStats/dutStats prior to the project being
   added to version control. Also contains some one-off scripts
@@ -23,4 +34,5 @@ archive.tar.gz
   This is being kept only for historical context. None of the files
   in this directory are current tools; all have been superceded
   by more recent versions of ltmStats or dutStats.
+  NOTE: This archive should be removed from the directory, but not from the repository (just in case).
 
