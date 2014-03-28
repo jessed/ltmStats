@@ -334,7 +334,9 @@ do {
     }
 
     # Save data in json_buffer in case that output has been requested
-    push($json_buffer{perfdata}, $out);
+    # Make sure we 'numify' the data-points before writing them out
+    foreach my $k (keys $out) { $out->{$k} += 0; }
+    push(@{$json_buffer{perfdata}}, $out);
   }
 
   # update 'old' data with the current values to calculate delta next cycle
@@ -876,43 +878,3 @@ END
 
   exit($code);
 }
-
-## Additional real-time output formats
-#    format STDOUT_TOP =
-# @>>>>>     @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
-#"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
-#.
-#
-#    format =
-#@####.###  @##.## @##.##    @#######  @########  @########  @#########  @#########   @#####    @#####
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
-#.
-#     write;
-#  }
-
-## This 'format' displays the standard data, but substitutes packets/second for throughput
-#    format STDOUT_TOP =
-#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
-#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "In/Mbps", "Out/Mbps", "cPPS/in", "sPPS/in"
-#.
-#
-#    format =
-#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $cPktsIn, $sPktsIn 
-#.
-#    write;
-#  }
-
-## This 'format' emphasizes connections and PPS
-#    format STDOUT_TOP =
-#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
-#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "Client Conns", "Server Conns", "cPPS/in", "sPPS/in"
-#.
-#
-#    format =
-#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cPktsIn, $sPktsIn
-#.
-#    write;
-#  }
-
