@@ -1,11 +1,18 @@
 Files
 
+ltmStats-json.pl
+  Current active version of ltmStats. Includes json output capability.
+
+ltmStats-dev.pl
+  Current development version branched from ltmStats-json.pl
+
 ltmStats.pl
   Remote statistics collection and recording utility. The script collects
   performance data using SNMP and writes an Excel spreadsheet (xlsx) 
   using the Excel::Spreadsheet::WriteExcel Perl module. This version
   does not run directly on LTM due to the lack of the Excel::
   Spreadsheet::WriteExcel module.
+  ** This version is deprecated and should be replaced with ltmStats-json.pl.
 
 dutStats.pl
   A reduced-functionality version of ltmStats.pl. This version does run

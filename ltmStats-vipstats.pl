@@ -4,8 +4,8 @@
 # Collects numerous statistics from a target BIP-IP while under test
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2009-2014
-# Written by: Jesse Driskill, Product Management Engineer
+# Copyright, F5 Networks, 2009-2015
+# Written by: Jesse Driskill, ITC Systems Engineer
 #####################################################
 
 ## Required libraries
@@ -22,6 +22,10 @@ use JSON;
 use Clone         qw/clone/;       
 use List::Util    qw/sum/;
 use Excel::Writer::XLSX;
+
+#### TODO: 
+# Define a metafile to populate customer and engagement details for inclusion with the xlsx
+
 
 $!++;  # No buffer for STDOUT
 $SIG{'INT'} = \&exit_now;  # handle ^C nicely
@@ -98,7 +102,7 @@ my (@dataList, @errorList, @staticList, @rowData, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
 my ($memUsed, $hMem, $dataVals, $errorVals, $col);
-my ($workbook, $summary, $raw_data, $chtdata, $charts);
+my ($workbook, $raw_data, $chtdata, $charts);
 my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $tBytesIn, $tBytesOut);
 my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut);
 my ($cNewConns, $sNewConns, $ccPktsIn, $ccPktsOut, $cBitsIn, $cBitsOut)   = (0, 0, 0, 0, 0, 0);
@@ -112,26 +116,26 @@ $test_meta->{test_name} = "$testname";
 $test_meta->{comments}  = "$comments";
 
 # Build the oid lists and varbind arrays
-my %staticOids  = &get_static_oids();
-my %dataOids    = &get_f5_oids();
-my %errorOids   = &get_err_oids();
+my %staticOids  = &get_static_oids();   # System globals
+my %dataOids    = &get_f5_oids();       # System-wide performance stats
+my %errorOids   = &get_err_oids();      # System-wide error counters
+my %vipOids     = &get_vip_oids();      # oids for individual virtual server stats
+my %vipStats    = &get_vip_stats();     # vip stats to be collected
 
 my @dutInfoHdrs = qw(Host Platform Version Build Memory CPUs Blades);
-my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Clnt bitsIn/s', 
-                   'Clnt bitsOut/s', 'Svr bitsIn/s', 'Svr bitsOut/s','Client CurConns',
+my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client Mbs In', 
+                   'Client Mbs Out', 'Server Mbs In', 'Server Mbs Out','Client CurConns',
                    'Server CurConns', 'Client Conns/Sec', 'Server Conns/Sec',
                    'HTTP Requests/Sec', 'Total CurConns', 
-                  );
-my @summaryHdrs = ('RunTime', 'LoopTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bitsIn/s', 
-                   'Client bitsOut/s', 'Server bitsIn/s', 'Server bitsOut/s', 
-                   'Client pktsIn/s', 'Client pktsOut/s', 'Server pktsIn/s', 'Server pktsOut/s',
-                   'Client Conn/s', 'Server Conn/s', 'HTTP Requests/Sec',
                   );
 my @rawdataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bytesIn', 'Client bytesOut', 
                    'Client pktsIn', 'Client pktsOut', 'Server btyesIn', 'Server bytesOut', 
                    'Server pktsIn', 'Server pktsOut', 'Client curConns', 'Client totConns', 
                    'Server curConns', 'Server totConns', 'HTTP Requests',
+                   'Clt PVA Bytes In', 'Clt PVA Bytes Out', 'Clt TMM Bytes In', 'Clt TMM Bytes Out',
+                   'Svr PVA Bytes In', 'Svr PVA Bytes Out', 'Svr TMM Bytes In', 'Svr TMM Bytes Out',
                   );
+my %virtualTabs = ();
 
 while (my ($key, $value) = each(%staticOids)) { push(@staticList, $value); }
 while (my ($key, $value) = each(%dataOids))   { push(@dataList, $value); }
@@ -149,8 +153,8 @@ die($error."\n") if ($error);
 # determine if logging is required and create the output files
 if ($XLSXOUT) {
   $DEBUG && print "Creating workbook ($xlsxName)\n";
-  ($workbook, $raw_data, $summary, $chtdata, $charts, %formats) = 
-      &mk_perf_xls($xlsxName, \@rawdataHdrs, \@summaryHdrs, \@chtDataHdrs, \@dutInfoHdrs);
+  ($workbook, $raw_data, $chtdata, $charts, %formats) = 
+      &mk_perf_xls($xlsxName, \@rawdataHdrs, \@chtDataHdrs, \@dutInfoHdrs);
 }
 
 # print out some information about the DUT being polled
@@ -162,11 +166,11 @@ print "# of blades: $result->{$staticOids{bladeCount}}\n";
 print "LTM Version: $result->{$staticOids{ltmVersion}}\n";
 print "LTM Build:   $result->{$staticOids{ltmBuild}}\n";
 
-# If a real xls is being written to, record DUT vital info on the first sheet
+# If a real xlsx is being written to, record DUT vital info on the first sheet
 if ($xlsxName !~ '/dev/null') {
-  while (my ($k, $v) = each(%staticOids)) {
-    print $k.": ".$result->{$v}."\n";
-  }
+  #while (my ($k, $v) = each(%staticOids)) {
+  #  print $k.": ".$result->{$v}."\n";
+  #}
   $charts->write("A2", $result->{$staticOids{hostName}},    $formats{text});
   $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
   $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
@@ -264,6 +268,14 @@ do {
   $cur->{serverCurConns}  = $xlsData->{tmmServerCurConns};
   $cur->{clientTotConns}  = $xlsData->{tmmClientTotConns};
   $cur->{serverTotConns}  = $xlsData->{tmmServerTotConns};
+  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};   # Client PVA bytes in
+  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};  # Client PVA bytes out
+  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};   # Client TMM bytes in
+  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};  # Client TMM bytes out
+  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};   # Server PVA bytes in
+  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};  # Server PVA bytes out
+  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};   # Server TMM bytes in
+  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};  # Server TMM bytes out
   $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}  + $xlsData->{pvaClientBytesIn};
   $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut} + $xlsData->{pvaClientBytesOut};
   $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}  + $xlsData->{pvaServerBytesIn};
@@ -283,6 +295,8 @@ do {
     $out->{sCurConns}     = sprintf("%.0f", $cur->{serverCurConns});
     $out->{cBitsIn}       = sprintf("%.0f", bytes_to_Mbits(delta("cBytesIn"))  / $loopTime);
     $out->{cBitsOut}      = sprintf("%.0f", bytes_to_Mbits(delta("cBytesOut")) / $loopTime);
+    #$out->{cBitsIn}       = sprintf("%.0f", bytes_to_Mbits($cur->{cBytesIn})  / $loopTime);
+    #$out->{cBitsOut}      = sprintf("%.0f", bytes_to_Mbits($cur->{cBytesOut}) / $loopTime);
     $out->{sBitsIn}       = sprintf("%.0f", bytes_to_Mbits(delta("sBytesIn"))  / $loopTime);
     $out->{sBitsOut}      = sprintf("%.0f", bytes_to_Mbits(delta("sBytesOut")) / $loopTime);
     $out->{cPktsIn}       = sprintf("%.0f", delta("cPktsIn")  / $loopTime);
@@ -301,7 +315,7 @@ do {
 .
 
     format =
-@####.###  @#.## @##.##  @#####   @#####  @#####  @######  @#########  @#########   @######   @######
+@####.###  @#.## @##.##  @#####  @######  @######  @######  @#########  @#########  @######  @######
 @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/}
 .
       write;
@@ -329,7 +343,15 @@ do {
                         sprintf("%.0f", $cur->{clientTotConns}),
                         sprintf("%.0f", $cur->{serverCurConns}),
                         sprintf("%.0f", $cur->{serverTotConns}),
-                        sprintf("%.0f", $cur->{totHttpReq})],
+                        sprintf("%.0f", $cur->{totHttpReq}),
+                        sprintf("%.0f", $cur->{cPvaBytesIn}),
+                        sprintf("%.0f", $cur->{cPvaBytesOut}),
+                        sprintf("%.0f", $cur->{cTmmBytesIn}),
+                        sprintf("%.0f", $cur->{cTmmBytesOut}),
+                        sprintf("%.0f", $cur->{sPvaBytesIn}),
+                        sprintf("%.0f", $cur->{sPvaBytesOut}),
+                        sprintf("%.0f", $cur->{sTmmBytesIn}),
+                        sprintf("%.0f", $cur->{sTmmBytesOut})],
                        $formats{'standard'});
     }
 
@@ -359,7 +381,6 @@ if ( $JSONOUT) {
 
 if ($XLSXOUT) {
   print "Writing XLSX output file: $xlsxName\n";
-  &write_summary($summary, \%formats, $row);
   &write_chartData($chtdata, \%formats, $row);
   &mk_charts($workbook, $charts, $row);
 
@@ -437,8 +458,7 @@ sub write_summary() {
     $row1    = $row0+1;
     $row2    = $row0+2;
 
-    #$cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
-    $cTime   = $r{'rowtime'}.$row2.'-'.$r{'rowtime'}.$row1;
+    $cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
 
     # splitting these out is required so a different format can be applied to numbers
     $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
@@ -477,7 +497,7 @@ sub write_chartData() {
   my $worksheet = shift;
   my $formats   = shift;
   my $numRows   = shift;
-  my ($row0, $col, $row1, $row2, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
+  my ($row0, $row1, $row2, $col, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
 
   # columns in 'raw_data' worksheet
   my %r = ('rowtime'      => 'A',
@@ -488,20 +508,17 @@ sub write_chartData() {
            'cltBytesOut'  => 'F',
            'svrBytesIn'   => 'I',
            'svrBytesOut'  => 'J',
+           'cltTotConns'  => 'N',
            'cltCurConns'  => 'M',
            'svrCurConns'  => 'O',
+           'svrTotConns'  => 'P',
            'httpRequests' => 'Q',
-          );
-  # columns in 'summary' worksheet
-  my %s = ('cltConnRate'  => 'N',
-           'srvConnRate'  => 'O',
-           'httpReqRate'  => 'P',
           );
 
   for ($row0 = 1; $row0 < $numRows; $row0++) {
     $row1    = $row0+1;
     $row2    = $row0+2;
-    $cTime   = $r{'rowtime'}.$row2.'-'.$r{'rowtime'}.$row1;
+    $cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
 
     # splitting these out is required so different formats can be applied
     $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
@@ -515,16 +532,16 @@ sub write_chartData() {
     #                     server bits/sec in, server bits/sec out, client conns/sec,
     #                     server conns/sec
     @rowData = (
-      '=raw_data!'   .$r{'memutil'}    .$row2,
-      '=(((raw_data!'.$r{'cltBytesIn'} .$row2.'-raw_data!'.$r{'cltBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'cltBytesOut'}.$row2.'-raw_data!'.$r{'cltBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesIn'} .$row2.'-raw_data!'.$r{'svrBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesOut'}.$row2.'-raw_data!'.$r{'svrBytesOut'}.$row1.')/('.$cTime.'))*8)',
+      '=(raw_data!'   .$r{'memutil'}    .$row2.'/'.MB.')',
+      '=((((raw_data!'.$r{'cltBytesIn'} .$row2.'-raw_data!'.$r{'cltBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'cltBytesOut'}.$row2.'-raw_data!'.$r{'cltBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'svrBytesIn'} .$row2.'-raw_data!'.$r{'svrBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'svrBytesOut'}.$row2.'-raw_data!'.$r{'svrBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
       '=raw_data!'   .$r{'cltCurConns'}.$row2,
       '=raw_data!'   .$r{'svrCurConns'}.$row2,
-      '=summary!'    .$s{'cltConnRate'}.$row2,
-      '=summary!'    .$s{'srvConnRate'}.$row2,
-      '=summary!'    .$s{'httpReqRate'}.$row2,
+      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
       '=raw_data!'   .$r{'cltCurConns'}.$row2.'+raw_data!'.$r{'svrCurConns'}.$row2,
 
     );
@@ -574,6 +591,18 @@ sub get_f5_oids() {
       'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.28.0',
       'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.29.0',
   );
+      #'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.2.3.48.46.48',
+      #'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.3.3.48.46.48',
+      #'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.4.3.48.46.48',
+      #'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.5.3.48.46.48',
+      #'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.9.3.48.46.48',
+      #'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.10.3.48.46.48',
+      #'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.11.3.48.46.48',
+      #'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.12.3.48.46.48',
+      #'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.7.3.48.46.48',
+      #'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.8.3.48.46.48',
+      #'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.14.3.48.46.48',
+      #'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.15.3.48.46.48',
   return(%oidlist);
 }
 
@@ -586,31 +615,100 @@ sub get_profile_oids() {
 
 # returns a hash containing oids that will be polled only once
 sub get_static_oids() {
-  my %oidlist = ( 'ltmVersion'   => '.1.3.6.1.4.1.3375.2.1.4.2.0',
-                  'ltmBuild'     => '.1.3.6.1.4.1.3375.2.1.4.3.0',
-                  'platform'     => '.1.3.6.1.4.1.3375.2.1.3.3.1.0',
-                  'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.38.0',
-                  'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.1.44.0',
-                  'hostName'     => '.1.3.6.1.4.1.3375.2.1.6.2.0',
-                  'bladeCount'   => '.1.3.6.1.4.1.3375.2.1.7.4.1.0',
-                );
-
+  my %oidlist = (
+    'ltmVersion'   => '.1.3.6.1.4.1.3375.2.1.4.2.0',
+    'ltmBuild'     => '.1.3.6.1.4.1.3375.2.1.4.3.0',
+    'platform'     => '.1.3.6.1.4.1.3375.2.1.3.3.1.0',
+    'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.38.0',
+    'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.1.44.0',
+    'hostName'     => '.1.3.6.1.4.1.3375.2.1.6.2.0',
+    'bladeCount'   => '.1.3.6.1.4.1.3375.2.1.7.4.1.0',
+  );
   return(%oidlist);
 }
 
 # returns a has containing oids that track errors
 sub get_err_oids() {
   my %oidlist = (
-      'incomingPktErrors'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.47.0',
-      'outgoingPktErrors'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.48.0',
-      'IPDroppedPkts'       => '.1.3.6.1.4.1.3375.2.1.1.2.7.4.0',
-      'vipNonSynDeny'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.20.0',
-      'cmpConnRedirected'   => '.1.3.6.1.4.1.3375.2.1.1.2.21.23.0',
-      'connMemErrors'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.24.0',
-      'sysIpStatDropped'    => '.1.3.6.1.4.1.3375.2.1.1.2.7.4.0',
+    'incomingPktErrors'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.47.0',
+    'outgoingPktErrors'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.48.0',
+    'IPDroppedPkts'       => '.1.3.6.1.4.1.3375.2.1.1.2.7.4.0',
+    'vipNonSynDeny'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.20.0',
+    'cmpConnRedirected'   => '.1.3.6.1.4.1.3375.2.1.1.2.21.23.0',
+    'connMemErrors'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.24.0',
+    'sysIpStatDropped'    => '.1.3.6.1.4.1.3375.2.1.1.2.7.4.0',
   );
 
   return(%oidlist);
+}
+
+# returns a hash containing oids for per-vip data
+sub get_vip_oids() {
+  # uninteresting fields have been commented out, but retained for possible
+  # future use
+  my %oidlist = (
+    'ltmVirtualServStatName'                  => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.1',
+    #'ltmVirtualServStatCsMinConnDur'          => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.2',
+    #'ltmVirtualServStatCsMaxConnDur'          => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.3',
+    #'ltmVirtualServStatCsMeanConnDur'         => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.4',
+    #'ltmVirtualServStatNoNodesErrors'         => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.5',
+    'ltmVirtualServStatClientPktsIn'          => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.6',
+    'ltmVirtualServStatClientBytesIn'         => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.7',
+    'ltmVirtualServStatClientPktsOut'         => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.8',
+    'ltmVirtualServStatClientBytesOut'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.9',
+    'ltmVirtualServStatClientMaxConns'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.10',
+    #'ltmVirtualServStatClientTotConns'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.11',
+    'ltmVirtualServStatClientCurConns'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.12',
+    'ltmVirtualServStatEphemeralPktsIn'       => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.13',
+    'ltmVirtualServStatEphemeralBytesIn'      => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.14',
+    'ltmVirtualServStatEphemeralPktsOut'      => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.15',
+    'ltmVirtualServStatEphemeralBytesOut'     => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.16',
+    #'ltmVirtualServStatEphemeralMaxConns'     => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.17',
+    #'ltmVirtualServStatEphemeralTotConns'     => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.18',
+    #'ltmVirtualServStatEphemeralCurConns'     => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.19',
+    'ltmVirtualServStatPvaPktsIn'             => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.20',
+    'ltmVirtualServStatPvaBytesIn'            => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.21',
+    'ltmVirtualServStatPvaPktsOut'            => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.22',
+    'ltmVirtualServStatPvaBytesOut'           => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.23',
+    'ltmVirtualServStatPvaMaxConns'           => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.24',
+    'ltmVirtualServStatPvaTotConns'           => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.25',
+    'ltmVirtualServStatPvaCurConns'           => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.26',
+    'ltmVirtualServStatTotRequests'           => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.27',
+    #'ltmVirtualServStatTotPvaAssistConn'      => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.28',
+    'ltmVirtualServStatCurrPvaAssistConn'     => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.29',
+    'ltmVirtualServStatCycleCount'            => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.30',
+    #'ltmVirtualServStatVsUsageRatio5s'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.31',
+    #'ltmVirtualServStatVsUsageRatio1m'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.32',
+    #'ltmVirtualServStatVsUsageRatio5m'        => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.33',
+    #'ltmVirtualServStatCurrentConnsPerSec'    => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.34',
+    #'ltmVirtualServStatDurationRateExceeded'  => '.1.3.6.1.4.1.3375.2.2.10.2.3.1.35'
+  );
+  return(%oidlist);
+}
+
+# returns a hash of statistic names and options used to configure the treatment
+# of individual vip oids
+sub get_vip_stats() {
+  my %virtualStatsToCollect = (
+    'ltmVirtualServStatCycleCount'        => ['CPU Cycles',     1,      14,       17,      'decimal0', 0],
+    'ltmVirtualServStatTotRequests'       => ['Requests',       1,      13,       17,      'decimal0', 0],
+
+    'ltmVirtualServStatClientBytesIn'     => ['Bits In',        1,      1,        17,      'decimal0', 1],
+    'ltmVirtualServStatClientBytesOut'    => ['Bits Out',       1,      2,        17,      'decimal0', 1],
+    'ltmVirtualServStatClientPktsIn'      => ['Pckts In',       1,      3,        17,      'decimal0', 0],
+    'ltmVirtualServStatClientPktsOut'     => ['Pckts Out',      1,      4,        17,      'decimal0', 0],
+    #'ltmVirtualServStatClientTotConns'    => ['Connections',    1,      5,        17,      'decimal0', 0],
+    'ltmVirtualServStatClientCurConns'    => ['Current conn.',  0,      6,        17,      'decimal0', 0],
+
+    'ltmVirtualServStatPvaBytesIn'        => ['Pva Bits In',    1,      7,        17,      'decimal0', 1],
+    'ltmVirtualServStatPvaBytesOut'       => ['Pva Bits Out',   1,      8,        17,      'decimal0', 1],
+    'ltmVirtualServStatPvaPktsIn'         => ['Pva Pkts In',    1,      9,        17,      'decimal0', 0],
+    'ltmVirtualServStatPvaPktsOut'        => ['Pva Pkts Out',   1,      10,       17,      'decimal0', 0],
+    #'ltmVirtualServStatPvaTotConns'       => ['Pva Conns',      1,      11,       17,      'decimal0', 0],
+    'ltmVirtualServStatPvaCurConns'       => ['Pva Cur conn.',  0,      12,       17,      'decimal0', 0],
+    'ltmVirtualServStatCurrPvaAssistConn' => ['PVA assist.',    1,     15,        17,      'decimal0', 0]
+  );
+  return(%vipStats);
 }
 
 sub mk_perf_xls() {
@@ -646,21 +744,12 @@ sub mk_perf_xls() {
   $charts->activate();
 
   # create the worksheet that will contain the data used for the charts
-  # similiar to the 'summary' worksheet, but with fewer columns
   my $chtData = $workbook->add_worksheet('chart_data');
   $chtData->set_zoom(80);
   $chtData->set_column('A:C', 9);
   $chtData->set_column('D:G', 15);
   $chtData->set_column('H:O', 18);
   #$chtData->activate();
-
-  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
-  my $summary = $workbook->add_worksheet('summary');
-  $summary->set_zoom(80);
-  $summary->set_column('A:C', 9);
-  $summary->set_column('D:D', 15);
-  $summary->set_column('E:E', 13);
-  $summary->set_column('F:Q', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
@@ -671,10 +760,9 @@ sub mk_perf_xls() {
 
   $charts->write( 0, 0, $dutHdrs, $hdrfmts{'headers'});
   $chtData->write(0, 0, $chtHdrs, $hdrfmts{'headers'});
-  $summary->write(0, 0, $sumHdrs, $hdrfmts{'headers'});
   $rawdata->write(0, 0, $rawHdrs, $hdrfmts{'headers'});
 
-  return($workbook, $rawdata, $summary, $chtData, $charts, %hdrfmts);
+  return($workbook, $rawdata, $chtData, $charts, %hdrfmts);
 }
 
 # Create the charts that will be displayed on the 'charts' sheet
@@ -688,7 +776,7 @@ sub mk_charts() {
   ## CPU Usage chart
   my $chtCpu  = $fname->add_chart( type => 'line', embedded => 1);
   $chtCpu->set_title ( name => 'CPU Utilization', name_font => { size => 12, bold => 0} );
-  $chtCpu->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
+  $chtCpu->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCpu->set_y_axis( name => 'CPU Usage', min => 0, max => 100 );
   $chtCpu->set_legend( position => 'bottom' );
   $chtCpu->add_series(
@@ -710,7 +798,7 @@ sub mk_charts() {
   ## Connection Rate
   my $chtCPS  = $fname->add_chart( type => 'line', embedded => 1);
   $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 12, bold => 0} );
-  $chtCPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
+  $chtCPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCPS->set_y_axis( name => 'Connections/Second', min => 0);
   $chtCPS->set_legend( position => 'bottom' );
   $chtCPS->add_series(
@@ -732,7 +820,7 @@ sub mk_charts() {
   ## Throughput chart
   my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
   $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 12, bold => 0} );
-  $chtTput->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
+  $chtTput->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
   $chtTput->set_legend( position => 'bottom' );
   $chtTput->add_series(
@@ -754,7 +842,7 @@ sub mk_charts() {
   ## Transaction Rate
   my $chtTPS  = $fname->add_chart( type => 'line', embedded => 1);
   $chtTPS->set_title ( name => 'Transaction Rate', name_font => { size => 12, bold => 0} );
-  $chtTPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
+  $chtTPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtTPS->set_y_axis( name => 'Transactions/Second', min => 0);
   $chtTPS->set_legend( position => 'bottom' );
   $chtTPS->add_series(  # HTTP Transaction rate
@@ -783,7 +871,7 @@ sub mk_charts() {
   ## Memory usage chart
   my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
   $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 12, bold => 0} );
-  $chtMem->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
+  $chtMem->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0);
   $chtMem->set_legend( position => 'none' );
   $chtMem->add_series(
@@ -798,7 +886,7 @@ sub mk_charts() {
   ## Concurrency
   my $chtCC   = $fname->add_chart( type => 'line', embedded => 1);
   $chtCC->set_title ( name => 'Concurrency', name_font => { size => 12, bold => 0} );
-  $chtCC->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => -45 } );
+  $chtCC->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCC->set_y_axis( name => 'Concurrent Connections', min => 0);
   $chtCC->set_legend( position => 'bottom' );
   $chtCC->add_series(
@@ -848,7 +936,6 @@ sub exit_now() {
   }
   if ($XLSXOUT == 1 && $row > 0) {
     print "\nStatistics collection cancelled. Attempting to save data.\n";
-    &write_summary($summary, \%formats, $row);
     &write_chartData($chtdata, \%formats, $row);
     &mk_charts($workbook, $charts, $row) if $row > 0;
     $workbook->close();
