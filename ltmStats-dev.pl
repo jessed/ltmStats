@@ -15,6 +15,7 @@ use strict;
 
 use Config;
 use Getopt::Std;
+use Term::ReadKey;
 use Net::SNMP     qw(:snmp);
 use Time::HiRes   qw(tv_interval gettimeofday ualarm usleep time);
 use Data::Dumper;
@@ -89,7 +90,7 @@ my $usCycleTime  = $cycleTime * 1_000_000;
 ## Initialization and environment check
 ##
 
-my (@dataList, @errorList, @staticList, @rowData, %formats);
+my (@dataList, @errorList, @staticList, @rowData, @winSize, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
 my ($memUsed, $hMem, $dataVals, $errorVals, $col);
@@ -98,10 +99,10 @@ my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $tBytesIn, $tBytesOut);
 my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut);
 my ($cNewConns, $sNewConns, $ccPktsIn, $ccPktsOut, $cBitsIn, $cBitsOut)   = (0, 0, 0, 0, 0, 0);
 my ($row, $sBitsIn, $sBitsOut, $tBitsIn, $tBitsOut, $httpReq)             = (0, 0, 0, 0, 0, 0);
-my ($slept, $sleepTime, $pollTime, $runTime, $lastLoopEnd, $loopTime)     = (0, 0, 0, 0, 0, 0);
+my ($iterations, $sleepTime, $runTime, $lastLoopEnd, $loopTime)           = (0, 0, 0, 0, 0);
 
 my ($old, $cur, $out, $xlsData, $test_meta) = ({}, {}, {}, {}, {});
-my %pollTimer = ();      # contains event timestamps
+my %pollTimer = ();                 # contains event timestamps
 
 $test_meta->{customer}  = "$customer";
 $test_meta->{test_name} = "$testname";
@@ -266,15 +267,18 @@ do {
   $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};  # Server PVA bytes out
   $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};   # Server TMM bytes in
   $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};  # Server TMM bytes out
-  $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}  + $xlsData->{pvaClientBytesIn};
-  $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut} + $xlsData->{pvaClientBytesOut};
-  $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}  + $xlsData->{pvaServerBytesIn};
-  $cur->{sBytesOut}       = $xlsData->{tmmServerBytesOut} + $xlsData->{pvaServerBytesOut};
-  $cur->{cPktsIn}         = $xlsData->{tmmClientPktsIn}   + $xlsData->{pvaClientPktsIn};
-  $cur->{cPktsOut}        = $xlsData->{tmmClientPktsOut}  + $xlsData->{pvaClientPktsOut};
-  $cur->{sPktsIn}         = $xlsData->{tmmServerPktsIn}   + $xlsData->{pvaServerPktsIn};
-  $cur->{sPktsOut}        = $xlsData->{tmmServerPktsOut}  + $xlsData->{pvaServerPktsOut};
+  $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}  + $xlsData->{pvaClientBytesIn};   # Client total bytes in
+  $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut} + $xlsData->{pvaClientBytesOut};  # Client total bytes out
+  $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}  + $xlsData->{pvaServerBytesIn};   # Server total bytes in
+  $cur->{sBytesOut}       = $xlsData->{tmmServerBytesOut} + $xlsData->{pvaServerBytesOut};  # Server total bytes out
+  $cur->{cPktsIn}         = $xlsData->{tmmClientPktsIn}   + $xlsData->{pvaClientPktsIn};    # Client total packets in
+  $cur->{cPktsOut}        = $xlsData->{tmmClientPktsOut}  + $xlsData->{pvaClientPktsOut};   # Client total packets out
+  $cur->{sPktsIn}         = $xlsData->{tmmServerPktsIn}   + $xlsData->{pvaServerPktsIn};    # Server total packets in
+  $cur->{sPktsOut}        = $xlsData->{tmmServerPktsOut}  + $xlsData->{pvaServerPktsOut};   # Server total packets out
   $cur->{totHttpReq}      = $xlsData->{sysStatHttpRequests};
+  $cur->{cpuUtil}         = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
+  $cur->{tmmUtil}         = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
+  $cur->{runTime}         = $runTime;
 
   if ($runTime) { 
     $out->{runTime}       = $runTime;
@@ -297,38 +301,28 @@ do {
 
 
     if ($VERBOSE) {
-    # This 'format' displays the standard data
-#@|||||||| @>>>>  @>>>>   @|||||||  @|||||  @|||||   @||||||  @|||||||||  @|||||||||  @||||||  @||||||| @|||||||| @||||||||
-    format STDOUT_TOP =
-@>>>>>>>> @>>>>  @>>>>   @>>>>>>>  @>>>>>>  @>>>>>> @>>>>>>  @>>>>>>>>>  @>>>>>>>>> @>>>>>>  @>>>>>> @>>>>>>>> @>>>>>>>>
-"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "HTTP", "Client CC", "Server CC", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out"
-.
-
-    format =
-@####.###  @#.##  @#.##  @#####  @######  @######  @######  @#########  @#########  @######  @###### @######## @########
-@$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/}
-.
-      write;
-      #printf("%.3d %.2d %.2d %6d %8d %8d %8d %9d %9d %6d %6d %9d %9d\n", 
-      #    @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+      @winSize = &GetTerminalSize;
+      if ($iterations == 1 || !$iterations%$winSize[1]) {
+      printf("%7s% 6s% 6s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
+          "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+      }
+      printf("%7.2f% 5.2f% 5.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
+          @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
     }
-#    else {
-#    # This 'format' displays the standard data
-#    format STDOUT_TOP =
-#@|||||||| @>>>>  @>>>>   @|||||||  @|||||  @|||||   @||||||  @|||||||||  @|||||||||  @||||||  @|||||||
-#"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "HTTPReq", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
-#.
-#
-#    format =
-#@####.###  @#.## @##.##  @#####  @######  @######  @######  @#########  @#########  @######  @######
-#@$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/}
-#.
-#      write;
-#    }
+    else {
+      @winSize = &GetTerminalSize;
+      if ($iterations == 1 || !$iterations%$winSize[1]) {
+      printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n", 
+          "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+      }
+      printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n", 
+          @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
+    }
 
     # If requested, write the output file.
     if ($XLSXOUT) {
       $row++;
+      &write_rawdata($raw_data, $row, $cur, %formats);
       $raw_data->write($row, 0, $out->{runTime}, $formats{decimal4});
       $raw_data->write($row, 1, $out->{cpuUtil}, $formats{decimal2});
       $raw_data->write($row, 2, $out->{tmmUtil}, $formats{decimal2});
@@ -351,12 +345,12 @@ do {
                         sprintf("%.0f", $cur->{totHttpReq}),
                         sprintf("%.0f", $cur->{cPvaBytesIn}),
                         sprintf("%.0f", $cur->{cPvaBytesOut}),
-                        sprintf("%.0f", $cur->{cTmmBytesIn}),
-                        sprintf("%.0f", $cur->{cTmmBytesOut}),
+                        sprintf("%.0f", $cur->{cBytesIn}),
+                        sprintf("%.0f", $cur->{cBytesOut}),
                         sprintf("%.0f", $cur->{sPvaBytesIn}),
                         sprintf("%.0f", $cur->{sPvaBytesOut}),
-                        sprintf("%.0f", $cur->{sTmmBytesIn}),
-                        sprintf("%.0f", $cur->{sTmmBytesOut})],
+                        sprintf("%.0f", $cur->{sBytesIn}),
+                        sprintf("%.0f", $cur->{sBytesOut})],
                        $formats{'standard'});
     }
 
@@ -376,15 +370,15 @@ do {
 
   my $wakeTime = Time::HiRes::time() + $sleepTime;
 
-  $DEBUG && printf("Query: %.6f, iteration: %.6f, sleep: %.6f, loop: %.6f\n",
-              $pollTimer{queryTime}, $pollTimer{iterationTime}, $sleepTime, $loopTime);
+  if ($DEBUG) {
+    print "Query: $pollTimer{queryTime}, iteration: $pollTimer{iterationTime}, sleep: $sleepTime, loop: $loopTime\n";
+  }
 
   $pollTimer{lastLoopEnd} = [gettimeofday];
   while (Time::HiRes::time() < $wakeTime) {
-    #print "Now: ".Time::HiRes::time()."  Waketime: $wakeTime\n";
     Time::HiRes::usleep(5);
-    #next;
   }
+  $iterations++;
 } while ($runTime < $testLen);
 
 # polling is now complete, time to write the output files (if requested)
@@ -395,7 +389,6 @@ if ( $JSONOUT) {
 
 if ($XLSXOUT) {
   print "Writing XLSX output file: $xlsxName\n";
-  #&write_summary($summary, \%formats, $row);
   &write_chartData($chtdata, \%formats, $row);
   &mk_charts($workbook, $charts, $row);
 
@@ -441,72 +434,43 @@ sub detect_test() {
   }
 }
 
-# write the formulas in the summary sheet. 
-# IN:   $row  - number of data rows in 'raw_data' worksheet
-# OUT:  nothing
-sub write_summary() {
+# Write data to the 'raw_data' tab
+sub write_rawdata() {
   my $worksheet = shift;
+  my $row       = shift;
+  my $data      = shift;
   my $formats   = shift;
-  my $numRows   = shift;
-  my ($row0, $col, $row1, $row2, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
-  
-  # columns in 'raw_data' worksheet, NOT the 'summary' worksheet
-  my %r = ('rowtime'      => 'A',
-           'rowcpu'       => 'B',
-           'rowtmm'       => 'C',
-           'memutil'      => 'D',
-           'cltBytesIn'   => 'E',
-           'cltBytesOut'  => 'F',
-           'cltPktsIn'    => 'G',
-           'cltPktsOut'   => 'H',
-           'svrBytesIn'   => 'I',
-           'svrBytesOut'  => 'J',
-           'svrPktsIn'    => 'K',
-           'svrPktsOut'   => 'L',
-           'cltTotConns'  => 'N',
-           'svrTotConns'  => 'P',
-           'httpRequests' => 'Q',
-          );
 
-
-  for ($row0 = 1; $row0 < $numRows; $row0++) {
-    $row1    = $row0+1;
-    $row2    = $row0+2;
-
-    $cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
-
-    # splitting these out is required so a different format can be applied to numbers
-    $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
-    $rowCPU  = '=raw_data!'.$r{'rowcpu'}.$row2;
-    $rowTMM  = '=raw_data!'.$r{'rowtmm'}.$row2;
-    $runDiff = '='.$cTime;
-
-    # @rowData contains formulas required to populate the summary data sheet.
-    # In order, they are: memutil, client bits/sec in, client bits/sec out,
-    #                     server bits/sec in, server bits/sec out, client conns/sec,
-    #                     server conns/sec, http requests/sec
-    @rowData = (
-      '=raw_data!'   .$r{'memutil'}.$row2,
-      '=(((raw_data!'.$r{'cltBytesIn'} .$row2.'-raw_data!'.$r{'cltBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'cltBytesOut'}.$row2.'-raw_data!'.$r{'cltBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesIn'} .$row2.'-raw_data!'.$r{'svrBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesOut'}.$row2.'-raw_data!'.$r{'svrBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=((raw_data!'.$r{'cltPktsIn'} .$row2.'-raw_data!'.$r{'cltPktsIn'} .$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'cltPktsOut'}.$row2.'-raw_data!'.$r{'cltPktsOut'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'svrPktsIn'} .$row2.'-raw_data!'.$r{'svrPktsIn'} .$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'svrPktsOut'}.$row2.'-raw_data!'.$r{'svrPktsOut'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
-    );
-
-    $DEBUG && print Dumper(\@rowData);
-    $worksheet->write($row0, 0, [$rowTime, $runDiff], ${$formats}{'decimal4'});
-    $worksheet->write($row0, 2, $rowCPU,   ${$formats}{'decimal2'});
-    $worksheet->write($row0, 3, $rowTMM,   ${$formats}{'decimal2'});
-    $worksheet->write($row0, 4, \@rowData, ${$formats}{'standard'});
-  }
+  $raw_data->write( $row, 0, $data->{runTime}, $formats{decimal4});
+  $raw_data->write( $row, 1, $data->{cpuUtil}, $formats{decimal2});
+  $raw_data->write( $row, 2, $data->{tmmUtil}, $formats{decimal2});
+  $raw_data->write( $row,
+                    3,
+                    [$data->{memUsed},
+                    sprintf("%.0f", $data->{cBytesIn}),
+                    sprintf("%.0f", $data->{cBytesOut}),
+                    sprintf("%.0f", $data->{cPktsIn}),
+                    sprintf("%.0f", $data->{cPktsOut}),
+                    sprintf("%.0f", $data->{sBytesIn}),
+                    sprintf("%.0f", $data->{sBytesOut}),
+                    sprintf("%.0f", $data->{sPktsIn}),
+                    sprintf("%.0f", $data->{sPktsOut}),
+                    sprintf("%.0f", $data->{clientCurConns}),
+                    sprintf("%.0f", $data->{clientTotConns}),
+                    sprintf("%.0f", $data->{serverCurConns}),
+                    sprintf("%.0f", $data->{serverTotConns}),
+                    sprintf("%.0f", $data->{totHttpReq}),
+                    sprintf("%.0f", $data->{cPvaBytesIn}),
+                    sprintf("%.0f", $data->{cPvaBytesOut}),
+                    sprintf("%.0f", $data->{cBytesIn}),
+                    sprintf("%.0f", $data->{cBytesOut}),
+                    sprintf("%.0f", $data->{sPvaBytesIn}),
+                    sprintf("%.0f", $data->{sPvaBytesOut}),
+                    sprintf("%.0f", $data->{sBytesIn}),
+                    sprintf("%.0f", $data->{sBytesOut})],
+                    $formats{'standard'});
 }
+
 
 sub write_chartData() {
   my $worksheet = shift;
@@ -519,21 +483,28 @@ sub write_chartData() {
            'rowcpu'       => 'B',
            'rowtmm'       => 'C',
            'memutil'      => 'D',
-           'cltBytesIn'   => 'E',
-           'cltBytesOut'  => 'F',
-           'svrBytesIn'   => 'I',
-           'svrBytesOut'  => 'J',
-           'cltTotConns'  => 'N',
+           'cBytesIn'     => 'E',
+           'cBytesOut'    => 'F',
+           'cPktsIn'      => 'G',
+           'cPktsOut'     => 'H',
+           'sBytesIn'     => 'I',
+           'sBytesOut'    => 'J',
+           'sPktsIn'      => 'K',
+           'sPktsOut'     => 'L',
            'cltCurConns'  => 'M',
+           'cltTotConns'  => 'N',
            'svrCurConns'  => 'O',
            'svrTotConns'  => 'P',
            'httpRequests' => 'Q',
+           'cPvaBytesIn'  => 'R',
+           'cPvaBytesOut' => 'S',
+           'cTmmPktsIn'   => 'T',
+           'cTmmPktsOut'  => 'U',
+           'sPvaBytesIn'  => 'V',
+           'sPvaBytesOut' => 'W',
+           'sTmmPktsIn'   => 'X',
+           'sTmmPktsOut'  => 'Y',
           );
-  # columns in 'summary' worksheet
-  #my %s = ('cltConnRate'  => 'N',
-  #         'srvConnRate'  => 'O',
-  #         'httpReqRate'  => 'P',
-  #        );
 
   for ($row0 = 1; $row0 < $numRows; $row0++) {
     $row1    = $row0+1;
@@ -553,10 +524,10 @@ sub write_chartData() {
     #                     server conns/sec
     @rowData = (
       '=(raw_data!'   .$r{'memutil'}    .$row2.'/'.MB.')',
-      '=((((raw_data!'.$r{'cltBytesIn'} .$row2.'-raw_data!'.$r{'cltBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
-      '=((((raw_data!'.$r{'cltBytesOut'}.$row2.'-raw_data!'.$r{'cltBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
-      '=((((raw_data!'.$r{'svrBytesIn'} .$row2.'-raw_data!'.$r{'svrBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
-      '=((((raw_data!'.$r{'svrBytesOut'}.$row2.'-raw_data!'.$r{'svrBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'cBytesIn'} .$row2.'-raw_data!'.$r{'cBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'cBytesOut'}.$row2.'-raw_data!'.$r{'cBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'sBytesIn'} .$row2.'-raw_data!'.$r{'sBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'sBytesOut'}.$row2.'-raw_data!'.$r{'sBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
       '=raw_data!'   .$r{'cltCurConns'}.$row2,
       '=raw_data!'   .$r{'svrCurConns'}.$row2,
       '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
@@ -565,11 +536,6 @@ sub write_chartData() {
       '=raw_data!'   .$r{'cltCurConns'}.$row2.'+raw_data!'.$r{'svrCurConns'}.$row2,
 
     );
-      # These lines were replaced with direct references to 'raw_data' rather than the 'Summary' worksheet.
-      # TODO: Removed the Summary worksheet (Jesse, 20140919)
-      #'=summary!'    .$s{'cltConnRate'}.$row2,  # K, clt conns/sec
-      #'=summary!'    .$s{'srvConnRate'}.$row2,  # L, svr conns/sec
-      #'=summary!'    .$s{'httpReqRate'}.$row2,  # M, requests/sec
 
     $DEBUG && print Dumper(\@rowData);
     $worksheet->write($row0, 0, $rowTime,  ${$formats}{'decimal0'});
@@ -616,18 +582,19 @@ sub get_f5_oids() {
       'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.28.0',
       'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.29.0',
   );
-      #'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.2.3.48.46.48',
-      #'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.3.3.48.46.48',
-      #'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.4.3.48.46.48',
-      #'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.5.3.48.46.48',
-      #'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.9.3.48.46.48',
-      #'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.10.3.48.46.48',
-      #'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.11.3.48.46.48',
-      #'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.12.3.48.46.48',
-      #'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.7.3.48.46.48',
-      #'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.8.3.48.46.48',
-      #'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.14.3.48.46.48',
-      #'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.15.3.48.46.48',
+      # per-pva (blade) oids
+      #'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.2',
+      #'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.3',
+      #'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.4',
+      #'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.5',
+      #'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.7',
+      #'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.8',
+      #'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.9',
+      #'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.10',
+      #'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.11',
+      #'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.12',
+      #'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.14',
+      #'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.15',
   return(%oidlist);
 }
 
@@ -902,7 +869,6 @@ sub exit_now() {
   }
   if ($XLSXOUT == 1 && $row > 0) {
     print "\nStatistics collection cancelled. Attempting to save data.\n";
-    #&write_summary($summary, \%formats, $row);
     &write_chartData($chtdata, \%formats, $row);
     &mk_charts($workbook, $charts, $row) if $row > 0;
     $workbook->close();
@@ -941,4 +907,74 @@ sub usage() {
 END
 
   exit($code);
+}
+
+###
+### Deprecated - will be removed in the near future
+###
+# write the formulas in the summary sheet. 
+# IN:   $row  - number of data rows in 'raw_data' worksheet
+# OUT:  nothing
+sub write_summary() {
+  my $worksheet = shift;
+  my $formats   = shift;
+  my $numRows   = shift;
+  my ($row0, $col, $row1, $row2, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
+  
+  # columns in 'raw_data' worksheet, NOT the 'summary' worksheet
+  my %r = ('rowtime'      => 'A',
+           'rowcpu'       => 'B',
+           'rowtmm'       => 'C',
+           'memutil'      => 'D',
+           'cBytesIn'     => 'E',
+           'cBytesOut'    => 'F',
+           'cPktsIn'      => 'G',
+           'cPktsOut'     => 'H',
+           'sBytesIn'     => 'I',
+           'sBytesOut'    => 'J',
+           'sPktsIn'      => 'K',
+           'sPktsOut'     => 'L',
+           'cltTotConns'  => 'N',
+           'svrTotConns'  => 'P',
+           'httpRequests' => 'Q',
+          );
+
+
+  for ($row0 = 1; $row0 < $numRows; $row0++) {
+    $row1    = $row0+1;
+    $row2    = $row0+2;
+
+    $cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
+
+    # splitting these out is required so a different format can be applied to numbers
+    $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
+    $rowCPU  = '=raw_data!'.$r{'rowcpu'}.$row2;
+    $rowTMM  = '=raw_data!'.$r{'rowtmm'}.$row2;
+    $runDiff = '='.$cTime;
+
+    # @rowData contains formulas required to populate the summary data sheet.
+    # In order, they are: memutil, client bits/sec in, client bits/sec out,
+    #                     server bits/sec in, server bits/sec out, client conns/sec,
+    #                     server conns/sec, http requests/sec
+    @rowData = (
+      '=raw_data!'   .$r{'memutil'}.$row2,
+      '=(((raw_data!'.$r{'cBytesIn'} .$row2.'-raw_data!'.$r{'cBytesIn'} .$row1.')/('.$cTime.'))*8)',
+      '=(((raw_data!'.$r{'cBytesOut'}.$row2.'-raw_data!'.$r{'cBytesOut'}.$row1.')/('.$cTime.'))*8)',
+      '=(((raw_data!'.$r{'sBytesIn'} .$row2.'-raw_data!'.$r{'sBytesIn'} .$row1.')/('.$cTime.'))*8)',
+      '=(((raw_data!'.$r{'sBytesOut'}.$row2.'-raw_data!'.$r{'sBytesOut'}.$row1.')/('.$cTime.'))*8)',
+      '=((raw_data!'.$r{'cPktsIn'} .$row2.'-raw_data!'.$r{'cPktsIn'} .$row1.')/('.$cTime.'))',
+      '=((raw_data!'.$r{'cPktsOut'}.$row2.'-raw_data!'.$r{'cPktsOut'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!'.$r{'sPktsIn'} .$row2.'-raw_data!'.$r{'sPktsIn'} .$row1.')/('.$cTime.'))',
+      '=((raw_data!'.$r{'sPktsOut'}.$row2.'-raw_data!'.$r{'sPktsOut'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
+    );
+
+    $DEBUG && print Dumper(\@rowData);
+    $worksheet->write($row0, 0, [$rowTime, $runDiff], ${$formats}{'decimal4'});
+    $worksheet->write($row0, 2, $rowCPU,   ${$formats}{'decimal2'});
+    $worksheet->write($row0, 3, $rowTMM,   ${$formats}{'decimal2'});
+    $worksheet->write($row0, 4, \@rowData, ${$formats}{'standard'});
+  }
 }
