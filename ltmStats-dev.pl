@@ -119,11 +119,11 @@ my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client Mbs In',
                    'Server CurConns', 'Client Conns/Sec', 'Server Conns/Sec',
                    'HTTP Requests/Sec', 'Total CurConns', 
                   );
-my @summaryHdrs = ('RunTime', 'LoopTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bitsIn/s', 
-                   'Client bitsOut/s', 'Server bitsIn/s', 'Server bitsOut/s', 
-                   'Client pktsIn/s', 'Client pktsOut/s', 'Server pktsIn/s', 'Server pktsOut/s',
-                   'Client Conn/s', 'Server Conn/s', 'HTTP Requests/Sec',
-                  );
+#my @summaryHdrs = ('RunTime', 'LoopTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bitsIn/s', 
+#                   'Client bitsOut/s', 'Server bitsIn/s', 'Server bitsOut/s', 
+#                   'Client pktsIn/s', 'Client pktsOut/s', 'Server pktsIn/s', 'Server pktsOut/s',
+#                   'Client Conn/s', 'Server Conn/s', 'HTTP Requests/Sec',
+#                  );
 my @rawdataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bytesIn', 'Client bytesOut', 
                    'Client pktsIn', 'Client pktsOut', 'Server btyesIn', 'Server bytesOut', 
                    'Server pktsIn', 'Server pktsOut', 'Client curConns', 'Client totConns', 
@@ -148,8 +148,8 @@ die($error."\n") if ($error);
 # determine if logging is required and create the output files
 if ($XLSXOUT) {
   $DEBUG && print "Creating workbook ($xlsxName)\n";
-  ($workbook, $raw_data, $summary, $chtdata, $charts, %formats) = 
-      &mk_perf_xls($xlsxName, \@rawdataHdrs, \@summaryHdrs, \@chtDataHdrs, \@dutInfoHdrs);
+  ($workbook, $raw_data, $chtdata, $charts, %formats) = 
+      &mk_perf_xls($xlsxName, \@rawdataHdrs, \@chtDataHdrs, \@dutInfoHdrs);
 }
 
 # print out some information about the DUT being polled
@@ -163,9 +163,7 @@ print "LTM Build:   $result->{$staticOids{ltmBuild}}\n";
 
 # If a real xlsx is being written to, record DUT vital info on the first sheet
 if ($xlsxName !~ '/dev/null') {
-  #while (my ($k, $v) = each(%staticOids)) {
-  #  print $k.": ".$result->{$v}."\n";
-  #}
+  #while (my ($k, $v) = each(%staticOids)) { print $k.": ".$result->{$v}."\n"; }
   $charts->write("A2", $result->{$staticOids{hostName}},    $formats{text});
   $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
   $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
@@ -637,9 +635,9 @@ sub get_err_oids() {
 sub mk_perf_xls() {
   my $fname   = shift;
   my $rawHdrs = shift;
-  my $sumHdrs = shift;
   my $chtHdrs = shift;
   my $dutHdrs = shift;
+#  my $sumHdrs = shift;
   my %hdrfmts;
 
   ## create Excel workbook
@@ -656,7 +654,7 @@ sub mk_perf_xls() {
   $hdrfmts{'decimal4'} = $workbook->add_format(align => 'center', num_format => '0.0000');
 
   ## create worksheets
-  # the 'charts' worksheet will contain graphs using data from the 'summary' sheet.
+  # the 'charts' worksheet will contain graphs using data from the 'chtData' sheet.
   my $charts = $workbook->add_worksheet('charts');
   $charts->hide_gridlines(2);
   $charts->set_zoom(100);
@@ -675,13 +673,13 @@ sub mk_perf_xls() {
   $chtData->set_column('H:O', 18);
   #$chtData->activate();
 
-  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
-  my $summary = $workbook->add_worksheet('summary');
-  $summary->set_zoom(80);
-  $summary->set_column('A:C', 9);
-  $summary->set_column('D:D', 15);
-  $summary->set_column('E:E', 13);
-  $summary->set_column('F:Q', 18);
+#  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
+#  my $summary = $workbook->add_worksheet('summary');
+#  $summary->set_zoom(80);
+#  $summary->set_column('A:C', 9);
+#  $summary->set_column('D:D', 15);
+#  $summary->set_column('E:E', 13);
+#  $summary->set_column('F:Q', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
@@ -692,10 +690,11 @@ sub mk_perf_xls() {
 
   $charts->write( 0, 0, $dutHdrs, $hdrfmts{'headers'});
   $chtData->write(0, 0, $chtHdrs, $hdrfmts{'headers'});
-  $summary->write(0, 0, $sumHdrs, $hdrfmts{'headers'});
+#  $summary->write(0, 0, $sumHdrs, $hdrfmts{'headers'});
   $rawdata->write(0, 0, $rawHdrs, $hdrfmts{'headers'});
 
-  return($workbook, $rawdata, $summary, $chtData, $charts, %hdrfmts);
+#  return($workbook, $rawdata, $summary, $chtData, $charts, %hdrfmts);
+  return($workbook, $rawdata, $chtData, $charts, %hdrfmts);
 }
 
 # Create the charts that will be displayed on the 'charts' sheet
