@@ -301,10 +301,10 @@ do {
     if ($VERBOSE) {
       @winSize = &GetTerminalSize;
       if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s% 6s% 6s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
+      printf("%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
       }
-      printf("%7.2f% 6.2f% 6.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
+      printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
     }
     else {
