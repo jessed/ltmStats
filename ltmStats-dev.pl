@@ -265,14 +265,14 @@ do {
   $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};  # Server PVA bytes out
   $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};   # Server TMM bytes in
   $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};  # Server TMM bytes out
-  $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}  + $xlsData->{pvaClientBytesIn};   # Client total bytes in
-  $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut} + $xlsData->{pvaClientBytesOut};  # Client total bytes out
-  $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}  + $xlsData->{pvaServerBytesIn};   # Server total bytes in
-  $cur->{sBytesOut}       = $xlsData->{tmmServerBytesOut} + $xlsData->{pvaServerBytesOut};  # Server total bytes out
-  $cur->{cPktsIn}         = $xlsData->{tmmClientPktsIn}   + $xlsData->{pvaClientPktsIn};    # Client total packets in
-  $cur->{cPktsOut}        = $xlsData->{tmmClientPktsOut}  + $xlsData->{pvaClientPktsOut};   # Client total packets out
-  $cur->{sPktsIn}         = $xlsData->{tmmServerPktsIn}   + $xlsData->{pvaServerPktsIn};    # Server total packets in
-  $cur->{sPktsOut}        = $xlsData->{tmmServerPktsOut}  + $xlsData->{pvaServerPktsOut};   # Server total packets out
+  $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}    + $xlsData->{pvaClientBytesIn};   # Client total bytes in
+  $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut}   + $xlsData->{pvaClientBytesOut};  # Client total bytes out
+  $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}    + $xlsData->{pvaServerBytesIn};   # Server total bytes in
+  $cur->{sBytesOut}       = $xlsData->{tmmServerBytesOut}   + $xlsData->{pvaServerBytesOut};  # Server total bytes out
+  $cur->{cPktsIn}         = $xlsData->{tmmClientPktsIn}     + $xlsData->{pvaClientPktsIn};    # Client total packets in
+  $cur->{cPktsOut}        = $xlsData->{tmmClientPktsOut}    + $xlsData->{pvaClientPktsOut};   # Client total packets out
+  $cur->{sPktsIn}         = $xlsData->{tmmServerPktsIn}     + $xlsData->{pvaServerPktsIn};    # Server total packets in
+  $cur->{sPktsOut}        = $xlsData->{tmmServerPktsOut}    + $xlsData->{pvaServerPktsOut};   # Server total packets out
   $cur->{totHttpReq}      = $xlsData->{sysStatHttpRequests};
   $cur->{cpuUtil}         = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
   $cur->{tmmUtil}         = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
@@ -301,7 +301,7 @@ do {
     if ($VERBOSE) {
       @winSize = &GetTerminalSize;
       if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
+      printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
       }
       printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
