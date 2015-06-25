@@ -297,25 +297,26 @@ do {
     $out->{cpuUtil}       = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
     $out->{tmmUtil}       = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
 
+    &print_cli($out);  
+#    if ($VERBOSE == 1) {
+#      @winSize = &GetTerminalSize;
+#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+#        printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
+#            "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+#      }
+#        printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
+#            @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+#    }
+#    else {
+#      @winSize = &GetTerminalSize;
+#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+#        printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n", 
+#            "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+#      }
+#      printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n", 
+#          @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
+#    }
 
-    if ($VERBOSE == 1) {
-      @winSize = &GetTerminalSize;
-      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-        printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
-            "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
-      }
-        printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
-            @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
-    }
-    else {
-      @winSize = &GetTerminalSize;
-      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-        printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n", 
-            "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
-      }
-      printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n", 
-          @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
-    }
 ## The following section will print comma-formatted counters. It is functional, but should incorporate 
 ## a different output option. Maybe something like '-vv' or '--pretty', etc...
 ## For now it will remain unimplemented.
@@ -344,7 +345,6 @@ do {
 #            &commify($out->{cCurConns}), &commify($out->{sCurConns}),
 #            &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
 #      }
-    }
 
     # If requested, write the output file.
     if ($XLSXOUT) {
@@ -913,6 +913,59 @@ sub commify() {
   local $_ = shift;
   1 while s/^(-?\d+)(\d{3})/$1,$2/;
   return $_;
+}
+
+# print CLI output
+sub print_cli() {
+  my $out = shift;
+
+  if ($VERBOSE == 1) {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
+          "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+    }
+      printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
+          @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+  }
+  else {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
+          "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+    }
+    printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
+        @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
+  }
+## The following section will print comma-formatted counters. It is functional, but should incorporate
+## a different output option. Maybe something like '-vv' or '--pretty', etc...
+## For now it will remain unimplemented.
+#  if ($VERBOSE => 2) {
+#    @winSize = &GetTerminalSize;
+#    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+#      printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
+#          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+#    }
+#    printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
+#        $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+#        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+#        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+#        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
+#        &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
+#  }
+#    else {
+#      @winSize = &GetTerminalSize;
+#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+#        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
+#            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+#      }
+#      printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
+#          $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+#          &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+#          &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+#          &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
+#    }
+
 }
 
 # print script usage and exit with the supplied status
