@@ -301,20 +301,35 @@ do {
     if ($VERBOSE) {
       @winSize = &GetTerminalSize;
       if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
-          "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+      #printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
+      #    "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
+            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
       }
-      printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
-          @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+      #printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
+      #    @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+        printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
+            $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+            &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+            &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+            &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
+            &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
     }
     else {
       @winSize = &GetTerminalSize;
       if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n", 
-          "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+      #printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n", 
+      #    "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
+            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
       }
-      printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n", 
-          @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
+      #printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n", 
+      #    @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
+        printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
+            $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+            &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+            &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+            &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
     }
 
     # If requested, write the output file.
@@ -879,7 +894,12 @@ sub exit_now() {
   exit(5);
 }
 
-
+# Inserts commas in output columns
+sub commify() {
+  local $_ = shift;
+  1 while s/^(-?\d+)(\d{3})/$1,$2/;
+  return $_;
+}
 
 # print script usage and exit with the supplied status
 sub usage() {
@@ -906,74 +926,4 @@ sub usage() {
 END
 
   exit($code);
-}
-
-###
-### Deprecated - will be removed in the near future
-###
-# write the formulas in the summary sheet. 
-# IN:   $row  - number of data rows in 'raw_data' worksheet
-# OUT:  nothing
-sub write_summary() {
-  my $worksheet = shift;
-  my $formats   = shift;
-  my $numRows   = shift;
-  my ($row0, $col, $row1, $row2, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
-  
-  # columns in 'raw_data' worksheet, NOT the 'summary' worksheet
-  my %r = ('rowtime'      => 'A',
-           'rowcpu'       => 'B',
-           'rowtmm'       => 'C',
-           'memutil'      => 'D',
-           'cBytesIn'     => 'E',
-           'cBytesOut'    => 'F',
-           'cPktsIn'      => 'G',
-           'cPktsOut'     => 'H',
-           'sBytesIn'     => 'I',
-           'sBytesOut'    => 'J',
-           'sPktsIn'      => 'K',
-           'sPktsOut'     => 'L',
-           'cltTotConns'  => 'N',
-           'svrTotConns'  => 'P',
-           'httpRequests' => 'Q',
-          );
-
-
-  for ($row0 = 1; $row0 < $numRows; $row0++) {
-    $row1    = $row0+1;
-    $row2    = $row0+2;
-
-    $cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
-
-    # splitting these out is required so a different format can be applied to numbers
-    $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
-    $rowCPU  = '=raw_data!'.$r{'rowcpu'}.$row2;
-    $rowTMM  = '=raw_data!'.$r{'rowtmm'}.$row2;
-    $runDiff = '='.$cTime;
-
-    # @rowData contains formulas required to populate the summary data sheet.
-    # In order, they are: memutil, client bits/sec in, client bits/sec out,
-    #                     server bits/sec in, server bits/sec out, client conns/sec,
-    #                     server conns/sec, http requests/sec
-    @rowData = (
-      '=raw_data!'   .$r{'memutil'}.$row2,
-      '=(((raw_data!'.$r{'cBytesIn'} .$row2.'-raw_data!'.$r{'cBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'cBytesOut'}.$row2.'-raw_data!'.$r{'cBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'sBytesIn'} .$row2.'-raw_data!'.$r{'sBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'sBytesOut'}.$row2.'-raw_data!'.$r{'sBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=((raw_data!'.$r{'cPktsIn'} .$row2.'-raw_data!'.$r{'cPktsIn'} .$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'cPktsOut'}.$row2.'-raw_data!'.$r{'cPktsOut'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'sPktsIn'} .$row2.'-raw_data!'.$r{'sPktsIn'} .$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'sPktsOut'}.$row2.'-raw_data!'.$r{'sPktsOut'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
-    );
-
-    $DEBUG && print Dumper(\@rowData);
-    $worksheet->write($row0, 0, [$rowTime, $runDiff], ${$formats}{'decimal4'});
-    $worksheet->write($row0, 2, $rowCPU,   ${$formats}{'decimal2'});
-    $worksheet->write($row0, 3, $rowTMM,   ${$formats}{'decimal2'});
-    $worksheet->write($row0, 4, \@rowData, ${$formats}{'standard'});
-  }
 }
