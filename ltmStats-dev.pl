@@ -29,9 +29,8 @@ $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 
 ## retrieve and process CLI paramters
 #
-our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $CUSTOMER);
-our ($TESTNAME, $COMMENTS, $PAUSE);
-getopts('d:m:l:o:j:C:T:m:c:s:i:p:BDvh', \%opts);
+our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PAUSE, $PRETTY);
+getopts('d:m:l:o:j:c:s:i:p:BDvhP', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
@@ -50,9 +49,6 @@ my $snmpVer   = $opts{'s'} || 'v2c';            # snmp version
 my $comm      = $opts{'c'} || 'public';         # community string    
 my $cycleTime = $opts{'i'} || 10;               # polling interval
 my $pause     = $opts{'p'} || 0;                # pause time
-my $customer  = $opts{'C'} || 'not provided';   # Customer name
-my $testname  = $opts{'T'} || 'not provided';   # Test name
-my $comments  = $opts{'m'} || 'not provided';   # Test comments/description
 
 
 # The signal handler will throw an error if the output files ($XLSXOUT and $JSONOUT)
@@ -62,9 +58,7 @@ $XLSXOUT    = ($opts{'o'} ? 1 : 0);
 $JSONOUT    = ($opts{'j'} ? 1 : 0);
 $VERBOSE    = ($opts{'v'} ? 1 : 0);
 $BYPASS     = ($opts{'B'} ? 1 : 0);
-$CUSTOMER   = ($opts{'C'} ? 1 : 0);
-$TESTNAME   = ($opts{'T'} ? 1 : 0);
-$COMMENTS   = ($opts{'m'} ? 1 : 0);
+$PRETTY     = ($opts{'P'} ? 1 : 0);             # pretty terminal output (see print_cli())
 
 
 if ($DEBUG) {
@@ -75,9 +69,7 @@ if ($DEBUG) {
   BYPASS:   $BYPASS
   DEBUG:    $DEBUG
   VERBOSE:  $VERBOSE
-  CUSTOMER: $CUSTOMER
-  TESTNAME: $TESTNAME
-  COMMENTS: $COMMENTS"
+  PRETTY:   $PRETTY"
 #EOF
 }
 
@@ -104,9 +96,9 @@ my ($iterations, $sleepTime, $runTime, $lastLoopEnd, $loopTime)           = (0, 
 my ($old, $cur, $out, $xlsData, $test_meta) = ({}, {}, {}, {}, {});
 my %pollTimer = ();                 # contains event timestamps
 
-$test_meta->{customer}  = "$customer";
-$test_meta->{test_name} = "$testname";
-$test_meta->{comments}  = "$comments";
+#$test_meta->{customer}  = "$customer";
+#$test_meta->{test_name} = "$testname";
+#$test_meta->{comments}  = "$comments";
 
 # Build the oid lists and varbind arrays
 my %staticOids  = &get_static_oids();
@@ -119,11 +111,6 @@ my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client Mbs In',
                    'Server CurConns', 'Client Conns/Sec', 'Server Conns/Sec',
                    'HTTP Requests/Sec', 'Total CurConns', 
                   );
-#my @summaryHdrs = ('RunTime', 'LoopTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bitsIn/s', 
-#                   'Client bitsOut/s', 'Server bitsIn/s', 'Server bitsOut/s', 
-#                   'Client pktsIn/s', 'Client pktsOut/s', 'Server pktsIn/s', 'Server pktsOut/s',
-#                   'Client Conn/s', 'Server Conn/s', 'HTTP Requests/Sec',
-#                  );
 my @rawdataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bytesIn', 'Client bytesOut', 
                    'Client pktsIn', 'Client pktsOut', 'Server btyesIn', 'Server bytesOut', 
                    'Server pktsIn', 'Server pktsOut', 'Client curConns', 'Client totConns', 
@@ -297,54 +284,8 @@ do {
     $out->{cpuUtil}       = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
     $out->{tmmUtil}       = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
 
+    # Print real-time stats to terminal
     &print_cli($out);  
-#    if ($VERBOSE == 1) {
-#      @winSize = &GetTerminalSize;
-#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-#        printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n", 
-#            "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
-#      }
-#        printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n", 
-#            @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
-#    }
-#    else {
-#      @winSize = &GetTerminalSize;
-#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-#        printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n", 
-#            "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
-#      }
-#      printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n", 
-#          @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
-#    }
-
-## The following section will print comma-formatted counters. It is functional, but should incorporate 
-## a different output option. Maybe something like '-vv' or '--pretty', etc...
-## For now it will remain unimplemented.
-#    if ($VERBOSE => 2) {
-#      @winSize = &GetTerminalSize;
-#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-#        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
-#            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
-#      }
-#      printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
-#          $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
-#          &commify($out->{cNewConns}), &commify($out->{sNewConns}),
-#          &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-#          &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
-#          &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
-#    }
-#      else {
-#        @winSize = &GetTerminalSize;
-#        if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-#          printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
-#              "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
-#        }
-#        printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
-#            $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
-#            &commify($out->{cNewConns}), &commify($out->{sNewConns}),
-#            &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-#            &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
-#      }
 
     # If requested, write the output file.
     if ($XLSXOUT) {
@@ -646,6 +587,19 @@ sub get_static_oids() {
   return(%oidlist);
 }
 
+# returns a hash containing oids for web acceleration (caching and compression)
+sub get_wa_oids() {
+  my %oidList = (
+    'httpPrecompressBytes'      => '.1.3.6.1.4.1.3375.2.1.1.2.22.2.0',
+    'httpPostcompressBytes'     => '.1.3.6.1.4.1.3375.2.1.1.2.22.3.0',
+    'httpNullCompressBytes'     => '.1.3.6.1.4.1.3375.2.1.1.2.22.2.0',
+    'waCacheHits'               => '.1.3.6.1.4.1.3375.2.1.1.2.23.2.0',
+    'waCacheMisses'             => '.1.3.6.1.4.1.3375.2.1.1.2.23.3.0',
+    'waCacheMissesAll'          => '.1.3.6.1.4.1.3375.2.1.1.2.23.4.0',
+    'waCacheHitBytes'           => '.1.3.6.1.4.1.3375.2.1.1.2.23.5.0',
+  );
+}
+
 # returns a has containing oids that track errors
 sub get_err_oids() {
   my %oidlist = (
@@ -701,14 +655,6 @@ sub mk_perf_xls() {
   $chtData->set_column('D:G', 15);
   $chtData->set_column('H:O', 18);
   #$chtData->activate();
-
-#  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
-#  my $summary = $workbook->add_worksheet('summary');
-#  $summary->set_zoom(80);
-#  $summary->set_column('A:C', 9);
-#  $summary->set_column('D:D', 15);
-#  $summary->set_column('E:E', 13);
-#  $summary->set_column('F:Q', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
@@ -919,7 +865,7 @@ sub commify() {
 sub print_cli() {
   my $out = shift;
 
-  if ($VERBOSE == 1) {
+  if ($VERBOSE == 1 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
       printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
@@ -928,44 +874,41 @@ sub print_cli() {
       printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
   }
-  else {
+  elsif ($VERBOSE == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
       printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
-          "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
     }
     printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
         @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
   }
-## The following section will print comma-formatted counters. It is functional, but should incorporate
-## a different output option. Maybe something like '-vv' or '--pretty', etc...
-## For now it will remain unimplemented.
-#  if ($VERBOSE => 2) {
-#    @winSize = &GetTerminalSize;
-#    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-#      printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
-#          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
-#    }
-#    printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
-#        $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
-#        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
-#        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-#        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
-#        &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
-#  }
-#    else {
-#      @winSize = &GetTerminalSize;
-#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-#        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
-#            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
-#      }
-#      printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
-#          $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
-#          &commify($out->{cNewConns}), &commify($out->{sNewConns}),
-#          &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-#          &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
-#    }
-
+  # The following section will print comma-formatted counters. Activate with the -P cli option
+  if ($VERBOSE == 1 && $PRETTY == 1) {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
+          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+    }
+    printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
+        $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
+        &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
+  }
+    elsif ($VERBOSE == 0 && $PRETTY == 1) {
+      @winSize = &GetTerminalSize;
+      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
+            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+      }
+      printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
+          $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+          &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+          &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+          &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
+    }
 }
 
 # print script usage and exit with the supplied status
@@ -973,21 +916,24 @@ sub usage() {
   my $code = shift;
 
   print <<END;
-  USAGE:  $0 -d <host> -l <total test length> -o <output file>
+  USAGE:  $0 -d <host> -l <duration> -o|j <output>
           $0 -h
 
   -d      IP or hostname to query (REQUIRED)
   -m      IP or hostname to monitor for the start of the test. Use this to 
           monitor the active LTM in a failover pair, but record data from the 
           standby LTM.
+  -c      SNMP community string           (default: public)
+  -s      SNMP version                    (default: v2c)
   -l      Full Test duration              (default: 130 seconds)
   -i      Seconds between polling cycles  (default: 10 seconds)
   -o      XLSX output filename            (default: /dev/null)
   -j      JSON output filename            (default: /dev/null)
   -p      Pause time; the amount of time to wait following the start of the 
           test before beginning polling. Should match the ramp-up time (default: 0)
-  -v      Verbose output (print stats)
   -B      Bypass start-of-test detection and start polling immediately
+  -v      Verbose output (print real-time stats during data collection)
+  -P      Add commas to output stats for readability (under development)
   -h      Print usage and exit
 
 END

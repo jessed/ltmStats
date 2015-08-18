@@ -4,30 +4,34 @@
 # Collects numerous statistics from a target BIP-IP while under test
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2009-2013
-# Written by: Jesse Driskill, Product Management Engineer
+# Copyright, F5 Networks, 2009-2015
+# Written by: Jesse Driskill, Sr. ITC Systems Engineer
 #####################################################
 
 ## Required libraries
 #
 use warnings;
 use strict;
+
 use Config;
 use Getopt::Std;
-use Net::SNMP qw(:snmp);
-import Time::HiRes qw(usleep time clock);
-use Excel::Writer::XLSX;
+use Term::ReadKey;
+use Net::SNMP     qw(:snmp);
+use Time::HiRes   qw(tv_interval gettimeofday ualarm usleep time);
 use Data::Dumper;
-#use Spreadsheet::WriteExcel;
+use JSON;
+use Clone         qw/clone/;       
+use List::Util    qw/sum/;
+use Excel::Writer::XLSX;
 
 $!++;  # No buffer for STDOUT
 $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 
 ## retrieve and process CLI paramters
 #
-our (%opts, $DATAOUT, $BYPASS, $DEBUG, $VERBOSE, $CUSTOMER, $TESTNAME, $COMMENTS);
-our ($PAUSE);
-getopts('d:m:l:o:C:T:m:c:s:i:p:BDvh', \%opts);
+our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $CUSTOMER);
+our ($TESTNAME, $COMMENTS, $PAUSE);
+getopts('d:m:l:o:j:C:T:m:c:s:i:p:BDvh', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
@@ -37,46 +41,37 @@ if (!$opts{'d'}) {
   &usage(1);
 }
 
-my $host      = $opts{'d'};                 # snmp host to poll
-my $secondary = $opts{'m'};                 # monitoring host
-my $testLen   = $opts{'l'} || 130;          # total duration of test in seconds
-my $xlsName   = $opts{'o'} || '/dev/null';  # output file name
-my $snmpVer   = $opts{'s'} || 'v2c';        # snmp version
-my $comm      = $opts{'c'} || 'public';     # community string    
-my $cycleTime = $opts{'i'} || 10;           # polling interval
-my $pause     = $opts{'p'} || 0;            # pause time
+my $host      = $opts{'d'};                     # snmp host to poll
+my $secondary = $opts{'m'};                     # monitoring host
+my $testLen   = $opts{'l'} || 130;              # total duration of test in seconds
+my $xlsxName  = $opts{'o'} || '/dev/null';      # xlsx output file name
+my $jsonName  = $opts{'j'} || '/dev/null';      # json output file name
+my $snmpVer   = $opts{'s'} || 'v2c';            # snmp version
+my $comm      = $opts{'c'} || 'public';         # community string    
+my $cycleTime = $opts{'i'} || 10;               # polling interval
+my $pause     = $opts{'p'} || 0;                # pause time
+my $customer  = $opts{'C'} || 'not provided';   # Customer name
+my $testname  = $opts{'T'} || 'not provided';   # Test name
+my $comments  = $opts{'m'} || 'not provided';   # Test comments/description
 
 
-## This commented block is probably unnecessary and should be removed (jesse, 2012-06-15)
-#if ($opts{'D'}) { $DEBUG      = 1; }
-#if ($opts{'o'}) { $DATAOUT    = 1; }
-#if ($opts{'B'}) { $BYPASS     = 1; }
-#if ($opts{'v'}) { $VERBOSE    = 1; }
-#if ($opts{'C'}) { $CUSTOMER   = $opts{'C'}; }
-#if ($opts{'T'}) { $TESTNAME   = $opts{'T'}; }
-#if ($opts{'m'}) { $COMMENTS   = $opts{'m'}; }
-
-# $DATAOUT must be defined or the signal handler will throw an error if 
-# the output file isn't setup. Only a cosmetic issue, but irritating.
+# The signal handler will throw an error if the output files ($XLSXOUT and $JSONOUT)
+# aren't defined. Cosmetic, but irritating.
 $DEBUG      = ($opts{'D'} ? 1 : 0);
-$DATAOUT    = ($opts{'o'} ? 1 : 0);
+$XLSXOUT    = ($opts{'o'} ? 1 : 0);
+$JSONOUT    = ($opts{'j'} ? 1 : 0);
 $VERBOSE    = ($opts{'v'} ? 1 : 0);
 $BYPASS     = ($opts{'B'} ? 1 : 0);
 $CUSTOMER   = ($opts{'C'} ? 1 : 0);
 $TESTNAME   = ($opts{'T'} ? 1 : 0);
 $COMMENTS   = ($opts{'m'} ? 1 : 0);
 
-## normal vars
-#
-my $elapsed   = 0;       # total time test has been running
-my %pollTimer = ();      # tracks the amount on time required for each poll operation
-
 
 if ($DEBUG) {
   print Dumper(\%opts);
   #($_ = <<EOF) =~ s/^\s+//gm;
   print "
-  DATAOUT:  $DATAOUT
+  XLSXOUT:  $XLSXOUT
   BYPASS:   $BYPASS
   DEBUG:    $DEBUG
   VERBOSE:  $VERBOSE
@@ -89,114 +84,86 @@ if ($DEBUG) {
 # additional constants
 use constant MB  => 1024*1024;
 use constant GB  => 1024*1024*1024;
-my $usCycleTime  = $cycleTime * 1000000;
+my $usCycleTime  = $cycleTime * 1_000_000;
 
 ##
 ## Initialization and environment check
 ##
 
-$VERBOSE && print("Host: ".$host."\nDuration: ".$testLen." seconds\nPolling Interval: ".
-                    $cycleTime."\nFile: ".$xlsName."\n\n");
-
-# Build the oid lists and varbind arrays
-my (@dataList, @errorList, @staticList, @rowData);
+my (@dataList, @errorList, @staticList, @rowData, @winSize, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
-my ($httpRequsts);
 my ($memUsed, $hMem, $dataVals, $errorVals, $col);
 my ($workbook, $summary, $raw_data, $chtdata, $charts);
 my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $tBytesIn, $tBytesOut);
 my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut);
 my ($cNewConns, $sNewConns, $ccPktsIn, $ccPktsOut, $cBitsIn, $cBitsOut)   = (0, 0, 0, 0, 0, 0);
 my ($row, $sBitsIn, $sBitsOut, $tBitsIn, $tBitsOut, $httpReq)             = (0, 0, 0, 0, 0, 0);
-my ($slept, $sleepTime, $pollTime, $runTime, $lastLoopEnd, $loopTotal)    = (0, 0, 0, 0, 0, 0);
-my $loopTime   = 1;
+my ($iterations, $sleepTime, $runTime, $lastLoopEnd, $loopTime)           = (0, 0, 0, 0, 0);
 
-my (%formats, %xlsData);
+my ($old, $cur, $out, $xlsData, $test_meta) = ({}, {}, {}, {}, {});
+my %pollTimer = ();                 # contains event timestamps
+
+$test_meta->{customer}  = "$customer";
+$test_meta->{test_name} = "$testname";
+$test_meta->{comments}  = "$comments";
+
+# Build the oid lists and varbind arrays
 my %staticOids  = &get_static_oids();
 my %dataOids    = &get_f5_oids();
 my %errorOids   = &get_err_oids();
-my %oldData     = (ssCpuRawUser   => 0,
-                   ssCpuRawNice   => 0,
-                   ssCpuRawSystem => 0,
-                   ssCpuRawIdle   => 0,
-                   tmmTotalCycles => 0,
-                   tmmIdleCycles  => 0,
-                   tmmSleepCycles => 0,
-                   cBytesIn       => 0,
-                   cBytesOut      => 0,
-                   sBytesIn       => 0,
-                   sBytesOut      => 0,
-                   httpReq        => 0,
-                  );
+
 my @dutInfoHdrs = qw(Host Platform Version Build Memory CPUs Blades);
-my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Clnt bitsIn/s', 
-                   'Clnt bitsOut/s', 'Svr bitsIn/s', 'Svr bitsOut/s','Client CurConns',
+my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client Mbs In', 
+                   'Client Mbs Out', 'Server Mbs In', 'Server Mbs Out','Client CurConns',
                    'Server CurConns', 'Client Conns/Sec', 'Server Conns/Sec',
-                   'HTTP Requests/Sec', 
+                   'HTTP Requests/Sec', 'Total CurConns', 
                   );
-my @summaryHdrs = ('RunTime', 'LoopTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bitsIn/s', 
-                   'Client bitsOut/s', 'Server bitsIn/s', 'Server bitsOut/s', 
-                   'Client pktsIn/s', 'Client pktsOut/s', 'Server pktsIn/s', 'Server pktsOut/s',
-                   'Client Conn/s', 'Server Conn/s', 'HTTP Requests/Sec',
-                  );
+#my @summaryHdrs = ('RunTime', 'LoopTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bitsIn/s', 
+#                   'Client bitsOut/s', 'Server bitsIn/s', 'Server bitsOut/s', 
+#                   'Client pktsIn/s', 'Client pktsOut/s', 'Server pktsIn/s', 'Server pktsOut/s',
+#                   'Client Conn/s', 'Server Conn/s', 'HTTP Requests/Sec',
+#                  );
 my @rawdataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bytesIn', 'Client bytesOut', 
                    'Client pktsIn', 'Client pktsOut', 'Server btyesIn', 'Server bytesOut', 
                    'Server pktsIn', 'Server pktsOut', 'Client curConns', 'Client totConns', 
                    'Server curConns', 'Server totConns', 'HTTP Requests',
+                   'Clt PVA Bytes In', 'Clt PVA Bytes Out', 'Clt TMM Bytes In', 'Clt TMM Bytes Out',
+                   'Svr PVA Bytes In', 'Svr PVA Bytes Out', 'Svr TMM Bytes In', 'Svr TMM Bytes Out',
                   );
 
 while (my ($key, $value) = each(%staticOids)) { push(@staticList, $value); }
 while (my ($key, $value) = each(%dataOids))   { push(@dataList, $value); }
 while (my ($key, $value) = each(%errorOids))  { push(@errorList, $value); }
 
-#my ($session, $error);
-#if ( $snmpVer =~ m/v2c/ ) {
-#  print "SNMP version v2c specified\n";
-  my ($session, $error) = Net::SNMP->session(
-    -hostname     => $host,
-    -community    => $comm,
-    -version      => $snmpVer,
-    -maxmsgsize   => 8192,
-    -nonblocking  => 0,
-  );
-  die($error."\n") if ($error);
-#}
-#elsif ($snmpVer =~ m/3/) {
-#  print "SNMP version 3 specified\n";
-#  my ($session, $error) = Net::SNMP->session(
-#    -hostname     => $host,
-#    -version      => 'snmpv3',
-#    -username     => 'admin',
-#    -authpassword => 'admin123',
-#    -authProtocol => 'md5',
-#    -maxmsgsize   => 8192,
-#    -nonblocking  => 0,
-#  );
-#  die($error."\n") if ($error);
-#}
+my ($session, $error) = Net::SNMP->session(
+  -hostname     => $host,
+  -community    => $comm,
+  -version      => $snmpVer,
+  -maxmsgsize   => 8192,
+  -nonblocking  => 0,
+);
+die($error."\n") if ($error);
 
 # determine if logging is required and create the output files
-if ($DATAOUT) {
-  $DEBUG && print "Creating workbook ($xlsName)\n";
-  ($workbook, $raw_data, $summary, $chtdata, $charts, %formats) = 
-      &mk_perf_xls($xlsName, \@rawdataHdrs, \@summaryHdrs, \@chtDataHdrs, \@dutInfoHdrs);
+if ($XLSXOUT) {
+  $DEBUG && print "Creating workbook ($xlsxName)\n";
+  ($workbook, $raw_data, $chtdata, $charts, %formats) = 
+      &mk_perf_xls($xlsxName, \@rawdataHdrs, \@chtDataHdrs, \@dutInfoHdrs);
 }
 
 # print out some information about the DUT being polled
 my $result = $session->get_request( -varbindlist  => \@staticList);
 print "Platform:    $result->{$staticOids{platform}}\n";
-print "Memory:      $result->{$staticOids{totalMemory}} (".$result->{$staticOids{totalMemory}} / (1024*1024)." MB)\n";
+print "Memory:      $result->{$staticOids{totalMemory}} (".$result->{$staticOids{totalMemory}} / MB." MB)\n";
 print "# of CPUs:   $result->{$staticOids{cpuCount}}\n";
 print "# of blades: $result->{$staticOids{bladeCount}}\n";
 print "LTM Version: $result->{$staticOids{ltmVersion}}\n";
 print "LTM Build:   $result->{$staticOids{ltmBuild}}\n";
 
-# If a real xls is being written to, record DUT vital info on the first sheet
-if ($xlsName !~ '/dev/null') {
-  while (my ($k, $v) = each(%staticOids)) {
-    print $k.": ".$result->{$v}."\n";
-  }
+# If a real xlsx is being written to, record DUT vital info on the first sheet
+if ($xlsxName !~ '/dev/null') {
+  #while (my ($k, $v) = each(%staticOids)) { print $k.": ".$result->{$v}."\n"; }
   $charts->write("A2", $result->{$staticOids{hostName}},    $formats{text});
   $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
   $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
@@ -206,6 +173,18 @@ if ($xlsName !~ '/dev/null') {
   $charts->write("G2", $result->{$staticOids{bladeCount}},  $formats{text});
 }
 
+
+$test_meta->{host_name}     = $result->{$staticOids{hostName}};
+$test_meta->{platform}      = $result->{$staticOids{platform}};
+$test_meta->{cpu_count}     = $result->{$staticOids{cpuCount}};
+$test_meta->{blade_count}   = $result->{$staticOids{bladeCount}};
+$test_meta->{memory}        = $result->{$staticOids{totalMemory}};
+$test_meta->{ltm_version}   = $result->{$staticOids{ltmVersion}};
+$test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
+
+my %json_buffer = ( 'metadata' => $test_meta,
+                    'perfdata' => [],
+                  );
 
 ##
 ## Begin Main
@@ -234,27 +213,26 @@ if ($pause) {
 }
 
 # start active polling
-$pollTimer{'testStart'} = Time::HiRes::time();
+$pollTimer{testStart} = [gettimeofday];
 
-while ($elapsed <= $testLen) {
-  $pollTimer{activeStart} = Time::HiRes::time();
+do {
+  my $out = {};
+  $pollTimer{activeStart} = [gettimeofday];
 
 
   # get snmp stats from DUT
   $dataVals = $session->get_request( -varbindlist  => \@dataList);
   die($session->error."\n") if (!defined($dataVals));
 
-  $pollTimer{pollTime} = Time::HiRes::time();
+  $pollTimer{queryTime}     = tv_interval($pollTimer{activeStart});
+  $pollTimer{lastPollTime}  = $pollTimer{pollTime};
+  $pollTimer{pollTime}      = [gettimeofday];
 
-  # update $runTime now so it will be accurate when written to the file
-  $runTime    = sprintf("%.7f", ($pollTimer{pollTime} - $pollTimer{testStart}));
 
-  # Get the exact time since the previous loop ended 
-  # This is used to get an accurate value for the 'rate' counters
-  ##Deprecated: $loopTime   = $pollTimer{pollTime} - $lastLoopEnd if ($lastLoopEnd);
-  if ($lastLoopEnd) {
-    $loopTime = $pollTimer{pollTime} - $lastLoopEnd;
-    $elapsed += $loopTime;
+  # Confirm at least one full iteration has completed
+  if ($pollTimer{lastLoopEnd}) {
+    $loopTime = tv_interval($pollTimer{lastPollTime});
+    $runTime  = tv_interval($pollTimer{testStart});
   } else {
     $loopTime = 0;
   }
@@ -262,185 +240,136 @@ while ($elapsed <= $testLen) {
   # Before any real processing, remove any non-numeric values (i.e. 'noSuchInstance')
   for my $n (keys(%dataOids)) {
     if ($dataVals->{$dataOids{$n}} =~ /\D+/) {
-      $xlsData{$n} = 1;
+      $xlsData->{$n} = 1;
     }
     else {
-      $xlsData{$n} = $dataVals->{$dataOids{$n}};
+      $xlsData->{$n} = $dataVals->{$dataOids{$n}};
     }
   }
 
-  # calculate accurate values from counters and record results
-  ($cpuUtil, $cpuPercent) = &get_cpu_usage($dataVals, \%oldData);
-  ($tmmUtil, $tmmPercent) = &get_tmm_usage($dataVals, \%oldData);
+  # CPU and TMM time used
+  $cur->{cpuTotalTicks}   = sum(@$xlsData{qw/ssCpuRawUser ssCpuRawNice ssCpuRawSystem ssCpuRawIdle/});
+  $cur->{cpuIdleTicks}    = $xlsData->{ssCpuRawIdle};
+  $cur->{tmmTotal}        = $xlsData->{tmmTotalCycles};
+  $cur->{tmmIdle}         = sum(@$xlsData{qw/tmmIdleCycles tmmSleepCycles/});
+  $cur->{memUsed}         = $xlsData->{tmmTotalMemoryUsed};
+  $cur->{clientCurConns}  = $xlsData->{tmmClientCurConns};
+  $cur->{serverCurConns}  = $xlsData->{tmmServerCurConns};
+  $cur->{clientTotConns}  = $xlsData->{tmmClientTotConns};
+  $cur->{serverTotConns}  = $xlsData->{tmmServerTotConns};
+  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};   # Client PVA bytes in
+  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};  # Client PVA bytes out
+  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};   # Client TMM bytes in
+  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};  # Client TMM bytes out
+  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};   # Server PVA bytes in
+  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};  # Server PVA bytes out
+  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};   # Server TMM bytes in
+  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};  # Server TMM bytes out
+  $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}    + $xlsData->{pvaClientBytesIn};   # Client total bytes in
+  $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut}   + $xlsData->{pvaClientBytesOut};  # Client total bytes out
+  $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}    + $xlsData->{pvaServerBytesIn};   # Server total bytes in
+  $cur->{sBytesOut}       = $xlsData->{tmmServerBytesOut}   + $xlsData->{pvaServerBytesOut};  # Server total bytes out
+  $cur->{cPktsIn}         = $xlsData->{tmmClientPktsIn}     + $xlsData->{pvaClientPktsIn};    # Client total packets in
+  $cur->{cPktsOut}        = $xlsData->{tmmClientPktsOut}    + $xlsData->{pvaClientPktsOut};   # Client total packets out
+  $cur->{sPktsIn}         = $xlsData->{tmmServerPktsIn}     + $xlsData->{pvaServerPktsIn};    # Server total packets in
+  $cur->{sPktsOut}        = $xlsData->{tmmServerPktsOut}    + $xlsData->{pvaServerPktsOut};   # Server total packets out
+  $cur->{totHttpReq}      = $xlsData->{sysStatHttpRequests};
+  $cur->{cpuUtil}         = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
+  $cur->{tmmUtil}         = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
+  $cur->{runTime}         = $runTime;
 
-  $memUsed    = $dataVals->{$dataOids{tmmTotalMemoryUsed}};
-  $hMem       = sprintf("%d", $memUsed / MB); # get Memory usage in MB
+  if ($runTime) { 
+    $out->{runTime}       = $runTime;
+    $out->{httpReq}       = sprintf("%.0f", delta("totHttpReq") / $loopTime);
+    $out->{cNewConns}     = sprintf("%.0f", delta("clientTotConns") / $loopTime);
+    $out->{sNewConns}     = sprintf("%.0f", delta("serverTotConns") / $loopTime);
+    $out->{cCurConns}     = sprintf("%.0f", $cur->{clientCurConns});
+    $out->{sCurConns}     = sprintf("%.0f", $cur->{serverCurConns});
+    $out->{cBitsIn}       = sprintf("%.0f", bytes_to_Mbits(delta("cBytesIn"))  / $loopTime);
+    $out->{cBitsOut}      = sprintf("%.0f", bytes_to_Mbits(delta("cBytesOut")) / $loopTime);
+    $out->{sBitsIn}       = sprintf("%.0f", bytes_to_Mbits(delta("sBytesIn"))  / $loopTime);
+    $out->{sBitsOut}      = sprintf("%.0f", bytes_to_Mbits(delta("sBytesOut")) / $loopTime);
+    $out->{cPktsIn}       = sprintf("%.0f", delta("cPktsIn")  / $loopTime);
+    $out->{cPktsOut}      = sprintf("%.0f", delta("cPktsOut") / $loopTime);
+    $out->{sPktsIn}       = sprintf("%.0f", delta("sPktsIn")  / $loopTime);
+    $out->{sPktsOut}      = sprintf("%.0f", delta("sPktsOut") / $loopTime);
+    $out->{memUsed}       = sprintf("%.0f", bytes_to_MB($cur->{memUsed}));
+    $out->{cpuUtil}       = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
+    $out->{tmmUtil}       = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
 
-  # client and server current connections
-  $clientCurConns = $dataVals->{$dataOids{sysStatClientCurConns}};
-  $serverCurConns = $dataVals->{$dataOids{sysStatServerCurConns}};
+    # Print real-time stats to terminal
+    &print_cli($out);  
 
-  # If requested, write the output file.
-  if ($DATAOUT) {
-    $row++;
-    $raw_data->write($row, 0, $runTime, $formats{decimal4});
-    $raw_data->write($row, 1, $cpuUtil, $formats{decimal2});
-    $raw_data->write($row, 2, $tmmUtil, $formats{decimal2});
+    # If requested, write the output file.
+    if ($XLSXOUT) {
+      $row++;
+      &write_rawdata($raw_data, $row, $cur, %formats);
+      $raw_data->write($row, 0, $out->{runTime}, $formats{decimal4});
+      $raw_data->write($row, 1, $out->{cpuUtil}, $formats{decimal2});
+      $raw_data->write($row, 2, $out->{tmmUtil}, $formats{decimal2});
 
-    $raw_data->write( $row, 
-                      3,
-                      [$memUsed,
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientBytesIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientBytesOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientPktsIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientPktsOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerBytesIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerBytesOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerPktsIn}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerPktsOut}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientCurConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatClientTotConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerCurConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatServerTotConns}}),
-                      sprintf("%.0f", $dataVals->{$dataOids{sysStatHttpRequests}})],
-                     $formats{'standard'});
+      $raw_data->write( $row, 
+                        3,
+                        [$cur->{memUsed},
+                        sprintf("%.0f", $cur->{cBytesIn}),
+                        sprintf("%.0f", $cur->{cBytesOut}),
+                        sprintf("%.0f", $cur->{cPktsIn}),
+                        sprintf("%.0f", $cur->{cPktsOut}),
+                        sprintf("%.0f", $cur->{sBytesIn}),
+                        sprintf("%.0f", $cur->{sBytesOut}),
+                        sprintf("%.0f", $cur->{sPktsIn}),
+                        sprintf("%.0f", $cur->{sPktsOut}),
+                        sprintf("%.0f", $cur->{clientCurConns}),
+                        sprintf("%.0f", $cur->{clientTotConns}),
+                        sprintf("%.0f", $cur->{serverCurConns}),
+                        sprintf("%.0f", $cur->{serverTotConns}),
+                        sprintf("%.0f", $cur->{totHttpReq}),
+                        sprintf("%.0f", $cur->{cPvaBytesIn}),
+                        sprintf("%.0f", $cur->{cPvaBytesOut}),
+                        sprintf("%.0f", $cur->{cBytesIn}),
+                        sprintf("%.0f", $cur->{cBytesOut}),
+                        sprintf("%.0f", $cur->{sPvaBytesIn}),
+                        sprintf("%.0f", $cur->{sPvaBytesOut}),
+                        sprintf("%.0f", $cur->{sBytesIn}),
+                        sprintf("%.0f", $cur->{sBytesOut})],
+                       $formats{'standard'});
+    }
+
+    # Save data in json_buffer in case that output has been requested
+    # Make sure we 'numify' the data-points before writing them out
+    foreach my $k (keys %$out) { $out->{$k} += 0; }
+    push(@{$json_buffer{perfdata}}, $out);
   }
-
-  if ($elapsed) { 
-    # pre-format some vars
-    $cBytesIn   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientBytesIn}} - 
-                                    $oldData{cBytesIn}) / $loopTime);
-    $cBytesOut  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientBytesOut}} -
-                                    $oldData{cBytesOut}) / $loopTime);
-    $sBytesIn   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerBytesIn}} -
-                                    $oldData{sBytesIn}) / $loopTime);
-    $sBytesOut  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerBytesOut}} -
-                                    $oldData{sBytesOut}) / $loopTime);
-    $cNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientTotConns}} -
-                                    $oldData{cTotConns}) / $loopTime);
-    $sNewConns  = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerTotConns}} -
-                                    $oldData{sTotConns}) / $loopTime);
-    $cPktsIn    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientPktsIn}} -
-                                    $oldData{cPktsIn}) / $loopTime);
-    $cPktsOut   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatClientPktsOut}} -
-                                    $oldData{cPktsOut}) / $loopTime);
-    $sPktsIn    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerPktsIn}} -
-                                    $oldData{sPktsIn}) / $loopTime);
-    $sPktsOut   = sprintf("%.0f", ($dataVals->{$dataOids{sysStatServerPktsOut}} -
-                                    $oldData{sPktsOut}) / $loopTime);
-    $httpReq    = sprintf("%.0f", ($dataVals->{$dataOids{sysStatHttpRequests}} -
-                                    $oldData{httpReq}) / $loopTime);
-    $cBitsIn    = sprintf("%.0f", (($cBytesIn * 8)  / 1000000));
-    $cBitsOut   = sprintf("%.0f", (($cBytesOut * 8) / 1000000));
-    $sBitsIn    = sprintf("%.0f", (($sBytesIn * 8)  / 1000000));
-    $sBitsOut   = sprintf("%.0f", (($sBytesOut * 8) / 1000000));
-    $tBitsIn    = $cBitsIn + $sBitsIn;
-    $tBitsOut   = $cBitsOut + $sBitsOut;
-  }  
-
-
-  if ( $elapsed > 0) {
-  # This 'format' displays the standard data
-
-    format STDOUT_TOP =
- @>>>>>     @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
-"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "HTTP_req", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
-.
-
-    format =
-@####.###  @##.## @##.##    @#######  @########  @########  @####### @#########  @#########   @#####    @#####
-$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $httpReq, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
-.
-     write;
-  }
-
-#    format STDOUT_TOP =
-# @>>>>>     @>>>   @>>>    @>>>>>>>>     @>>>>>     @>>>>>  @>>>>>>>>>  @>>>>>>>>>  @>>>>>>  @>>>>>>>
-#"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
-#.
-#
-#    format =
-#@####.###  @##.## @##.##    @#######  @########  @########  @#########  @#########   @#####    @#####
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cBitsIn, $cBitsOut
-#.
-#     write;
-#  }
-
-## This 'format' displays the standard data, but substitutes packets/second for throughput
-#    format STDOUT_TOP =
-#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
-#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "In/Mbps", "Out/Mbps", "cPPS/in", "sPPS/in"
-#.
-#
-#    format =
-#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $cBitsIn, $cBitsOut, $cPktsIn, $sPktsIn 
-#.
-#    write;
-#  }
-
-## This 'format' emphasizes connections and PPS
-#    format STDOUT_TOP =
-#@>>>>   @>>>  @>>>>  @>>>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>>>>> @>>>>>>>>>>>>  @>>>>>>>>   @>>>>>>>>
-#"Time", "CPU", "TMM", "Memory (MB)", "C-CPS", "S-CPS", "Client Conns", "Server Conns", "cPPS/in", "sPPS/in"
-#.
-#
-#    format =
-#@#### @##.## @##.## @>>>>>>>>>> @>>>>>> @>>>>>>     @>>>>>>>>     @>>>>>>>>   @>>>>>>>>   @>>>>>>>>
-#$elapsed, $cpuUtil, $tmmUtil, $hMem, $cNewConns, $sNewConns, $clientCurConns, $serverCurConns, $cPktsIn, $sPktsIn
-#.
-#    write;
-#  }
-
 
   # update 'old' data with the current values to calculate delta next cycle
-  $oldData{ssCpuRawUser}   = $dataVals->{$dataOids{ssCpuRawUser}};
-  $oldData{ssCpuRawNice}   = $dataVals->{$dataOids{ssCpuRawNice}};
-  $oldData{ssCpuRawSystem} = $dataVals->{$dataOids{ssCpuRawSystem}};
-  $oldData{ssCpuRawIdle}   = $dataVals->{$dataOids{ssCpuRawIdle}};
-  $oldData{tmmTotalCycles} = $dataVals->{$dataOids{tmmTotalCycles}};
-  $oldData{tmmIdleCycles}  = $dataVals->{$dataOids{tmmIdleCycles}};
-  $oldData{tmmSleepCycles} = $dataVals->{$dataOids{tmmSleepCycles}};
-  $oldData{cBytesIn}       = $dataVals->{$dataOids{sysStatClientBytesIn}};
-  $oldData{cBytesOut}      = $dataVals->{$dataOids{sysStatClientBytesOut}};
-  $oldData{sBytesIn}       = $dataVals->{$dataOids{sysStatServerBytesIn}};
-  $oldData{sBytesOut}      = $dataVals->{$dataOids{sysStatServerBytesOut}};
-  $oldData{sPktsIn}        = $dataVals->{$dataOids{sysStatServerPktsIn}};
-  $oldData{sPktsOut}       = $dataVals->{$dataOids{sysStatServerPktsOut}};
-  $oldData{cPktsIn}        = $dataVals->{$dataOids{sysStatClientPktsIn}};
-  $oldData{cPktsOut}       = $dataVals->{$dataOids{sysStatClientPktsOut}};
-  $oldData{cTotConns}      = $dataVals->{$dataOids{sysStatClientTotConns}};
-  $oldData{sTotConns}      = $dataVals->{$dataOids{sysStatServerTotConns}};
-  $oldData{httpReq}        = $dataVals->{$dataOids{sysStatHttpRequests}};
+  $old = clone($cur);
+
+  # Calculate how much time this iteration has required to determine how
+  # long we should sleep before beginning the next cycle
+  $pollTimer{iterationTime} = tv_interval($pollTimer{activeStart});
+  $sleepTime = $cycleTime - $pollTimer{iterationTime};
+
+  my $wakeTime = Time::HiRes::time() + $sleepTime;
 
   if ($DEBUG) {
-    format STDERR_TOP =
-@>>>>>>>>  @||||||||||||  @||||||||||||||||| @||||||||||||||||| @||||||||||||||||| @|||||||||  @||||||||||||
-"RunTime", "Elapsed", "activeStart", "activeStop", "pollTime", "loopTime", "lastLoopTotal"
-.
-
-    format STDERR =
-@########  @######.#####  @###########.##### @###########.##### @###########.#####  @##.#####   @##.#####
-$runTime, $elapsed, $pollTimer{activeStart}, $pollTimer{activeStop}, $pollTimer{pollTime}, $loopTime, $loopTotal
-.
-    write STDERR;
+    print "Query: $pollTimer{queryTime}, iteration: $pollTimer{iterationTime}, sleep: $sleepTime, loop: $loopTime\n";
   }
 
-  # Calculate how much time this polling cycle has required to determine how
-  # long we should sleep before beginning the next cycle
-  $pollTimer{activeStop} = Time::HiRes::time();
-  $loopTotal = $pollTimer{'activeStop'} - $lastLoopEnd;
-  $sleepTime = $cycleTime;
+  $pollTimer{lastLoopEnd} = [gettimeofday];
+  while (Time::HiRes::time() < $wakeTime) {
+    Time::HiRes::usleep(5);
+  }
+  $iterations++;
+} while ($runTime < $testLen);
 
-  $lastLoopEnd = Time::HiRes::time();
-  Time::HiRes::sleep($sleepTime);
-} 
+# polling is now complete, time to write the output files (if requested)
+if ( $JSONOUT) {
+  print "Writing JSON output file: $jsonName\n";
+  &json_fwrite();
+}
 
-
-if ($DATAOUT) {
-  $DEBUG && print "Writing summary, chart_data, and charts worksheets...\n";
-  # polling is now complete, time to write the summary formulas 
-  &write_summary($summary, \%formats, $row);
+if ($XLSXOUT) {
+  print "Writing XLSX output file: $xlsxName\n";
   &write_chartData($chtdata, \%formats, $row);
   &mk_charts($workbook, $charts, $row);
 
@@ -449,26 +378,35 @@ if ($DATAOUT) {
 }
 
 
-
 ##
 ## Subs
 ##
+
+# utility subs
+sub delta           { return (!exists $old->{$_[0]} ? 0 : $cur->{$_[0]} - $old->{$_[0]}); }
+sub delta2          {
+  printf("Old: %.0f   Cur: %.0f   Diff: %.0f\n", $old->{$_[0]}, $cur->{$_[0]}, $cur->{$_[0]} - $old->{$_[0]});
+  return ((!exists $old->{$_[0]}) ? 0 : ($cur->{$_[0]} - $old->{$_[0]}));
+};
+sub bytes_to_Mbits  { return sprintf("%.0f", ($_[0] * 8) / 1_000_000) };
+sub bytes_to_MB     { return sprintf("%d", $_[0] / (1024 * 1024)) };
+sub cpu_util        { return ($_[0] == 0) ? 0 : (($_[0] - $_[1]) / $_[0]) * 100 };
 
 # delay the start of the script until the test is detected through pkts/sec
 sub detect_test() {
   my $snmp = shift;
   my $oids = shift;
-  my $pkts = 500;
+  my $pkts = 1000;
 
   print "\nWaiting for test to begin...\n";
 
   while (1) {
-    my $r1 = $snmp->get_request($$oids{sysStatClientPktsIn});
+    my $r1 = $snmp->get_request($$oids{tmmClientPktsIn});
     sleep(4);
-    my $r2 = $snmp->get_request($$oids{sysStatClientPktsIn});
+    my $r2 = $snmp->get_request($$oids{tmmClientPktsIn});
 
-    my $delta = $r2->{$$oids{sysStatClientPktsIn}}- 
-                $r1->{$$oids{sysStatClientPktsIn}};
+    my $delta = $r2->{$$oids{tmmClientPktsIn}}- 
+                $r1->{$$oids{tmmClientPktsIn}};
   
     if ($delta > $pkts) {
       print "Start of test detected...\n\n";
@@ -477,103 +415,82 @@ sub detect_test() {
   }
 }
 
-# write the formulas in the summary sheet. 
-# IN:   $row  - number of data rows in 'raw_data' worksheet
-# OUT:  nothing
-sub write_summary() {
+# Write data to the 'raw_data' tab
+sub write_rawdata() {
   my $worksheet = shift;
+  my $row       = shift;
+  my $data      = shift;
   my $formats   = shift;
-  my $numRows   = shift;
-  my ($row0, $col, $row1, $row2, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
-  
-  # columns in 'raw_data' worksheet, NOT the 'summary' worksheet
-  my %r = ('rowtime'      => 'A',
-           'rowcpu'       => 'B',
-           'rowtmm'       => 'C',
-           'memutil'      => 'D',
-           'cltBytesIn'   => 'E',
-           'cltBytesOut'  => 'F',
-           'cltPktsIn'    => 'G',
-           'cltPktsOut'   => 'H',
-           'svrBytesIn'   => 'I',
-           'svrBytesOut'  => 'J',
-           'svrPktsIn'    => 'K',
-           'svrPktsOut'   => 'L',
-           'cltTotConns'  => 'N',
-           'svrTotConns'  => 'P',
-           'httpRequests' => 'Q',
-          );
 
-
-  for ($row0 = 1; $row0 < $numRows; $row0++) {
-    $row1    = $row0+1;
-    $row2    = $row0+2;
-
-    #$cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
-    $cTime   = $r{'rowtime'}.$row2.'-'.$r{'rowtime'}.$row1;
-
-    # splitting these out is required so a different format can be applied to numbers
-    $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
-    $rowCPU  = '=raw_data!'.$r{'rowcpu'}.$row2;
-    $rowTMM  = '=raw_data!'.$r{'rowtmm'}.$row2;
-    $runDiff = '='.$cTime;
-
-    # @rowData contains formulas required to populate the summary data sheet.
-    # In order, they are: memutil, client bits/sec in, client bits/sec out,
-    #                     server bits/sec in, server bits/sec out, client conns/sec,
-    #                     server conns/sec, http requests/sec
-    @rowData = (
-      '=raw_data!'   .$r{'memutil'}.$row2,
-      '=(((raw_data!'.$r{'cltBytesIn'} .$row2.'-raw_data!'.$r{'cltBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'cltBytesOut'}.$row2.'-raw_data!'.$r{'cltBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesIn'} .$row2.'-raw_data!'.$r{'svrBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesOut'}.$row2.'-raw_data!'.$r{'svrBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=((raw_data!'.$r{'cltPktsIn'} .$row2.'-raw_data!'.$r{'cltPktsIn'} .$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'cltPktsOut'}.$row2.'-raw_data!'.$r{'cltPktsOut'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'svrPktsIn'} .$row2.'-raw_data!'.$r{'svrPktsIn'} .$row1.')/('.$cTime.'))',
-      '=((raw_data!'.$r{'svrPktsOut'}.$row2.'-raw_data!'.$r{'svrPktsOut'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
-    );
-
-    $DEBUG && print Dumper(\@rowData);
-    $worksheet->write($row0, 0, [$rowTime, $runDiff], ${$formats}{'decimal4'});
-    $worksheet->write($row0, 2, $rowCPU,   ${$formats}{'decimal2'});
-    $worksheet->write($row0, 3, $rowTMM,   ${$formats}{'decimal2'});
-    $worksheet->write($row0, 4, \@rowData, ${$formats}{'standard'});
-  }
+  $raw_data->write( $row, 0, $data->{runTime}, $formats{decimal4});
+  $raw_data->write( $row, 1, $data->{cpuUtil}, $formats{decimal2});
+  $raw_data->write( $row, 2, $data->{tmmUtil}, $formats{decimal2});
+  $raw_data->write( $row,
+                    3,
+                    [$data->{memUsed},
+                    sprintf("%.0f", $data->{cBytesIn}),
+                    sprintf("%.0f", $data->{cBytesOut}),
+                    sprintf("%.0f", $data->{cPktsIn}),
+                    sprintf("%.0f", $data->{cPktsOut}),
+                    sprintf("%.0f", $data->{sBytesIn}),
+                    sprintf("%.0f", $data->{sBytesOut}),
+                    sprintf("%.0f", $data->{sPktsIn}),
+                    sprintf("%.0f", $data->{sPktsOut}),
+                    sprintf("%.0f", $data->{clientCurConns}),
+                    sprintf("%.0f", $data->{clientTotConns}),
+                    sprintf("%.0f", $data->{serverCurConns}),
+                    sprintf("%.0f", $data->{serverTotConns}),
+                    sprintf("%.0f", $data->{totHttpReq}),
+                    sprintf("%.0f", $data->{cPvaBytesIn}),
+                    sprintf("%.0f", $data->{cPvaBytesOut}),
+                    sprintf("%.0f", $data->{cBytesIn}),
+                    sprintf("%.0f", $data->{cBytesOut}),
+                    sprintf("%.0f", $data->{sPvaBytesIn}),
+                    sprintf("%.0f", $data->{sPvaBytesOut}),
+                    sprintf("%.0f", $data->{sBytesIn}),
+                    sprintf("%.0f", $data->{sBytesOut})],
+                    $formats{'standard'});
 }
+
 
 sub write_chartData() {
   my $worksheet = shift;
   my $formats   = shift;
   my $numRows   = shift;
-  my ($row0, $col, $row1, $row2, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
+  my ($row0, $row1, $row2, $col, $cTime, $rowTime, $runDiff, $rowCPU, $rowTMM);
 
   # columns in 'raw_data' worksheet
   my %r = ('rowtime'      => 'A',
            'rowcpu'       => 'B',
            'rowtmm'       => 'C',
            'memutil'      => 'D',
-           'cltBytesIn'   => 'E',
-           'cltBytesOut'  => 'F',
-           'svrBytesIn'   => 'I',
-           'svrBytesOut'  => 'J',
+           'cBytesIn'     => 'E',
+           'cBytesOut'    => 'F',
+           'cPktsIn'      => 'G',
+           'cPktsOut'     => 'H',
+           'sBytesIn'     => 'I',
+           'sBytesOut'    => 'J',
+           'sPktsIn'      => 'K',
+           'sPktsOut'     => 'L',
            'cltCurConns'  => 'M',
+           'cltTotConns'  => 'N',
            'svrCurConns'  => 'O',
+           'svrTotConns'  => 'P',
            'httpRequests' => 'Q',
-          );
-  # columns in 'summary' worksheet
-  my %s = ('cltConnRate'  => 'N',
-           'srvConnRate'  => 'O',
-           'httpReqRate'  => 'P',
+           'cPvaBytesIn'  => 'R',
+           'cPvaBytesOut' => 'S',
+           'cTmmPktsIn'   => 'T',
+           'cTmmPktsOut'  => 'U',
+           'sPvaBytesIn'  => 'V',
+           'sPvaBytesOut' => 'W',
+           'sTmmPktsIn'   => 'X',
+           'sTmmPktsOut'  => 'Y',
           );
 
   for ($row0 = 1; $row0 < $numRows; $row0++) {
     $row1    = $row0+1;
     $row2    = $row0+2;
-    $cTime   = $r{'rowtime'}.$row2.'-'.$r{'rowtime'}.$row1;
+    $cTime   = 'raw_data!'.$r{'rowtime'}.$row2.'-raw_data!'.$r{'rowtime'}.$row1;
 
     # splitting these out is required so different formats can be applied
     $rowTime = '=raw_data!'.$r{'rowtime'}.$row2;
@@ -587,16 +504,18 @@ sub write_chartData() {
     #                     server bits/sec in, server bits/sec out, client conns/sec,
     #                     server conns/sec
     @rowData = (
-      '=raw_data!'   .$r{'memutil'}    .$row2,
-      '=(((raw_data!'.$r{'cltBytesIn'} .$row2.'-raw_data!'.$r{'cltBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'cltBytesOut'}.$row2.'-raw_data!'.$r{'cltBytesOut'}.$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesIn'} .$row2.'-raw_data!'.$r{'svrBytesIn'} .$row1.')/('.$cTime.'))*8)',
-      '=(((raw_data!'.$r{'svrBytesOut'}.$row2.'-raw_data!'.$r{'svrBytesOut'}.$row1.')/('.$cTime.'))*8)',
+      '=(raw_data!'   .$r{'memutil'}    .$row2.'/'.MB.')',
+      '=((((raw_data!'.$r{'cBytesIn'} .$row2.'-raw_data!'.$r{'cBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'cBytesOut'}.$row2.'-raw_data!'.$r{'cBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'sBytesIn'} .$row2.'-raw_data!'.$r{'sBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
+      '=((((raw_data!'.$r{'sBytesOut'}.$row2.'-raw_data!'.$r{'sBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
       '=raw_data!'   .$r{'cltCurConns'}.$row2,
       '=raw_data!'   .$r{'svrCurConns'}.$row2,
-      '=summary!'    .$s{'cltConnRate'}.$row2,
-      '=summary!'    .$s{'srvConnRate'}.$row2,
-      '=summary!'    .$s{'httpReqRate'}.$row2,
+      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
+      '=raw_data!'   .$r{'cltCurConns'}.$row2.'+raw_data!'.$r{'svrCurConns'}.$row2,
+
     );
 
     $DEBUG && print Dumper(\@rowData);
@@ -618,27 +537,51 @@ sub get_f5_oids() {
       'tmmIdleCycles'           => '.1.3.6.1.4.1.3375.2.1.1.2.1.42.0',
       'tmmSleepCycles'          => '.1.3.6.1.4.1.3375.2.1.1.2.1.43.0',
       'tmmTotalMemoryUsed'      => '.1.3.6.1.4.1.3375.2.1.1.2.1.45.0',
-      'sysStatClientBytesIn'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.3.0',
-      'sysStatClientBytesOut'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.5.0',
-      'sysStatClientPktsIn'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.2.0',
-      'sysStatClientPktsOut'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.4.0',
-      'sysStatClientTotConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
-      'sysStatClientCurConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.8.0',
-      'sysStatServerBytesIn'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.10.0',
-      'sysStatServerBytesOut'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.12.0',
-      'sysStatServerPktsIn'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.9.0',
-      'sysStatServerPktsOut'    => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
-      'sysStatServerTotConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
-      'sysStatServerCurConns'   => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
+      'tmmClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.3.0',
+      'tmmClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.5.0',
+      'tmmClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.2.0',
+      'tmmClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.4.0',
+      'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
+      'tmmClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.8.0',
+      'tmmServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.10.0',
+      'tmmServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.12.0',
+      'tmmServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.9.0',
+      'tmmServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
+      'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
+      'tmmServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
       'sysStatHttpRequests'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.56.0',
-                );
-
+      'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.16.0',
+      'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.17.0',
+      'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.18.0',
+      'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.19.0',
+      'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.23.0',
+      'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.24.0',
+      'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.25.0',
+      'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.26.0',
+      'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.21.0',
+      'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.22.0',
+      'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.28.0',
+      'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.29.0',
+  );
+      # per-pva (blade) oids
+      #'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.2',
+      #'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.3',
+      #'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.4',
+      #'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.5',
+      #'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.7',
+      #'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.8',
+      #'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.9',
+      #'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.10',
+      #'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.11',
+      #'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.12',
+      #'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.14',
+      #'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.15',
   return(%oidlist);
 }
 
 sub get_profile_oids() {
   my %profileOids = ( 'userStatProfile1'  => '1.3.6.1.4.1.3375.2.2.6.19.2.3.1',
-                );
+  );
 
   return(%profileOids);
 }
@@ -672,48 +615,12 @@ sub get_err_oids() {
   return(%oidlist);
 }
 
-# Return System CPU utilization
-sub get_cpu_usage() {
-  my $curData = shift;
-  my $oldData = shift;
-  my ($cpuTotal, $cpuRaw, $cpuNice, $cpuSystem, $cpuIdle, $cpuUtil, $cpuPercent);
-  my ($cpuUserDelta, $cpuNiceDelta, $cpuIdleDelta, $cpuSysDelta);
-
-  $cpuUserDelta = $curData->{$dataOids{'ssCpuRawUser'}}   - $oldData->{'ssCpuRawUser'};
-  $cpuNiceDelta = $curData->{$dataOids{'ssCpuRawNice'}}   - $oldData->{'ssCpuRawNice'};
-  $cpuIdleDelta = $curData->{$dataOids{'ssCpuRawIdle'}}   - $oldData->{'ssCpuRawIdle'};
-  $cpuSysDelta  = $curData->{$dataOids{'ssCpuRawSystem'}} - $oldData->{'ssCpuRawSystem'};
-  $cpuTotal     = $cpuUserDelta + $cpuNiceDelta + $cpuIdleDelta + $cpuSysDelta;
-
-  $cpuUtil      = (($cpuTotal - $cpuIdleDelta) / $cpuTotal) * 100;
-  $cpuPercent   = sprintf("%.2f", ((($cpuTotal - $cpuIdleDelta) / $cpuTotal) * 100));
-
-  return($cpuUtil, $cpuPercent);
-}
-
-# Return TMM CPU utilization
-sub get_tmm_usage() {
-  my $curData = shift;
-  my $oldData = shift;
-  my ($tmmTotal, $tmmIdle, $tmmSleep, $tmmUtil, $tmmPercent);
-
-  $tmmTotal  = $curData->{$dataOids{'tmmTotalCycles'}} - $oldData->{'tmmTotalCycles'};
-  $tmmIdle   = $curData->{$dataOids{'tmmIdleCycles'}}  - $oldData->{'tmmIdleCycles'};
-  $tmmSleep  = $curData->{$dataOids{'tmmSleepCycles'}} - $oldData->{'tmmSleepCycles'};
-  
-  $tmmUtil    = (($tmmTotal - ($tmmIdle + $tmmSleep)) / $tmmTotal) * 100;
-  $tmmPercent = sprintf("%.2f", $tmmUtil);
-
-  return($tmmUtil, $tmmPercent);
-}
-
-
 sub mk_perf_xls() {
   my $fname   = shift;
   my $rawHdrs = shift;
-  my $sumHdrs = shift;
   my $chtHdrs = shift;
   my $dutHdrs = shift;
+#  my $sumHdrs = shift;
   my %hdrfmts;
 
   ## create Excel workbook
@@ -730,8 +637,9 @@ sub mk_perf_xls() {
   $hdrfmts{'decimal4'} = $workbook->add_format(align => 'center', num_format => '0.0000');
 
   ## create worksheets
-  # the 'charts' worksheet will contain graphs using data from the 'summary' sheet.
+  # the 'charts' worksheet will contain graphs using data from the 'chtData' sheet.
   my $charts = $workbook->add_worksheet('charts');
+  $charts->hide_gridlines(2);
   $charts->set_zoom(100);
   $charts->set_column('A:A', 30);
   $charts->set_column('B:D', 10);
@@ -748,13 +656,13 @@ sub mk_perf_xls() {
   $chtData->set_column('H:O', 18);
   #$chtData->activate();
 
-  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
-  my $summary = $workbook->add_worksheet('summary');
-  $summary->set_zoom(80);
-  $summary->set_column('A:C', 9);
-  $summary->set_column('D:D', 15);
-  $summary->set_column('E:E', 13);
-  $summary->set_column('F:Q', 18);
+#  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
+#  my $summary = $workbook->add_worksheet('summary');
+#  $summary->set_zoom(80);
+#  $summary->set_column('A:C', 9);
+#  $summary->set_column('D:D', 15);
+#  $summary->set_column('E:E', 13);
+#  $summary->set_column('F:Q', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
@@ -765,12 +673,14 @@ sub mk_perf_xls() {
 
   $charts->write( 0, 0, $dutHdrs, $hdrfmts{'headers'});
   $chtData->write(0, 0, $chtHdrs, $hdrfmts{'headers'});
-  $summary->write(0, 0, $sumHdrs, $hdrfmts{'headers'});
+#  $summary->write(0, 0, $sumHdrs, $hdrfmts{'headers'});
   $rawdata->write(0, 0, $rawHdrs, $hdrfmts{'headers'});
 
-  return($workbook, $rawdata, $summary, $chtData, $charts, %hdrfmts);
+#  return($workbook, $rawdata, $summary, $chtData, $charts, %hdrfmts);
+  return($workbook, $rawdata, $chtData, $charts, %hdrfmts);
 }
 
+# Create the charts that will be displayed on the 'charts' sheet
 sub mk_charts() {
   my $fname     = shift;
   my $worksheet = shift;
@@ -780,10 +690,10 @@ sub mk_charts() {
 
   ## CPU Usage chart
   my $chtCpu  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCpu->set_title ( name => 'CPU Utilization', name_font => { size => 14, bold => 0} );
-  $chtCpu->set_x_axis( name => 'Time (Seconds)' );
+  $chtCpu->set_title ( name => 'CPU Utilization', name_font => { size => 12, bold => 0} );
+  $chtCpu->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCpu->set_y_axis( name => 'CPU Usage', min => 0, max => 100 );
-  $chtCpu->set_legend( position => 'none' );
+  $chtCpu->set_legend( position => 'bottom' );
   $chtCpu->add_series(
     name        => '=chart_data!$B$1',
     values      => '=chart_data!$B$2:$B$'.($numRows-1),
@@ -791,49 +701,19 @@ sub mk_charts() {
     line        => { color => 'blue' },
     marker      => { type  => 'none' },
   );
-  $worksheet->insert_chart( 'A4', $chtCpu, 10, 0);
-
-  ## Memory usage chart
-  my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 14, bold => 0} );
-  $chtMem->set_x_axis( name => 'Time (Seconds)' );
-  $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0);
-  $chtMem->set_legend( position => 'none' );
-  $chtMem->add_series(
-    name        => '=chart_data!$D$1',
-    values      => '=chart_data!$D$2:$D$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'blue' },
-    marker      => { type  => 'none' },
-  );
-  $worksheet->insert_chart( 'A19', $chtMem, 10, 0);
-
-  ## Client throughput chart
-  my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 14, bold => 0} );
-  $chtTput->set_x_axis( name => 'Time (Seconds)' );
-  $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
-  $chtTput->set_legend( position => 'bottom' );
-  $chtTput->add_series(
-    name        => '=chart_data!$E$1',
-    values      => '=chart_data!$E$2:$E$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'blue' },
-    marker      => { type  => 'none' },
-  );
-  $chtTput->add_series(
-    name        => '=chart_data!$F$1',
-    values      => '=chart_data!$F$2:$F$'.($numRows-1),
+  $chtCpu->add_series(
+    name        => '=chart_data!$C$1',
+    values      => '=chart_data!$C$2:$C$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
-  $worksheet->insert_chart( 'E4', $chtTput, 50, 0);
+  $worksheet->insert_chart( 'A4', $chtCpu, 10, 0);
 
   ## Connection Rate
   my $chtCPS  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 14, bold => 0} );
-  $chtCPS->set_x_axis( name => 'Time (Seconds)' );
+  $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 12, bold => 0} );
+  $chtCPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCPS->set_y_axis( name => 'Connections/Second', min => 0);
   $chtCPS->set_legend( position => 'bottom' );
   $chtCPS->add_series(
@@ -850,12 +730,78 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
-  $worksheet->insert_chart( 'E19', $chtCPS, 50, 0);
+  $worksheet->insert_chart( 'E4', $chtCPS, 50, 0);
+
+  ## Throughput chart
+  my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
+  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 12, bold => 0} );
+  $chtTput->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
+  $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
+  $chtTput->set_legend( position => 'bottom' );
+  $chtTput->add_series(
+    name        => '=chart_data!$E$1',
+    values      => '=chart_data!$E$2:$E$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'blue' },
+    marker      => { type  => 'none' },
+  );
+  $chtTput->add_series(
+    name        => '=chart_data!$F$1',
+    values      => '=chart_data!$F$2:$F$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'red' },
+    marker      => { type  => 'none' },
+  );
+  $worksheet->insert_chart( 'A19', $chtTput, 10, 0);
+
+  ## Transaction Rate
+  my $chtTPS  = $fname->add_chart( type => 'line', embedded => 1);
+  $chtTPS->set_title ( name => 'Transaction Rate', name_font => { size => 12, bold => 0} );
+  $chtTPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
+  $chtTPS->set_y_axis( name => 'Transactions/Second', min => 0);
+  $chtTPS->set_legend( position => 'bottom' );
+  $chtTPS->add_series(  # HTTP Transaction rate
+    name        => '=chart_data!$M$1',
+    values      => '=chart_data!$M$2:$M$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'green' },
+    marker      => { type  => 'none' },
+  );
+  $chtTPS->add_series(  # Client-side connection rate
+    name        => '=chart_data!$K$1',
+    values      => '=chart_data!$K$2:$K$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'blue' },
+    marker      => { type  => 'none' },
+  );
+  $chtTPS->add_series(  # Server-side connection rate
+    name        => '=chart_data!$L$1',
+    values      => '=chart_data!$L$2:$L$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'red' },
+    marker      => { type  => 'none' },
+  );
+  $worksheet->insert_chart( 'E19', $chtTPS, 50, 0);
+
+  ## Memory usage chart
+  my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
+  $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 12, bold => 0} );
+  $chtMem->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
+  $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0);
+  $chtMem->set_legend( position => 'none' );
+  $chtMem->add_series(
+    name        => '=chart_data!$D$1',
+    values      => '=chart_data!$D$2:$D$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'blue' },
+    marker      => { type  => 'none' },
+  );
+  $worksheet->insert_chart( 'A34', $chtMem, 10, 0);
 
   ## Concurrency
   my $chtCC   = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCC->set_title ( name => 'Concurrency', name_font => { size => 14, bold => 0} );
-  $chtCC->set_x_axis( name => 'Time (Seconds)' );
+  $chtCC->set_title ( name => 'Concurrency', name_font => { size => 12, bold => 0} );
+  $chtCC->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCC->set_y_axis( name => 'Concurrent Connections', min => 0);
   $chtCC->set_legend( position => 'bottom' );
   $chtCC->add_series(
@@ -872,7 +818,14 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
-  $worksheet->insert_chart( 'A34', $chtCC, 10, 0);
+  $chtCC->add_series(
+    name        => '=chart_data!$N$1',
+    values      => '=chart_data!$N$2:$N$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'green' },
+    marker      => { type  => 'none' },
+  );
+  $worksheet->insert_chart( 'E34', $chtCC, 50, 0);
 
   return(1);
 }
@@ -880,29 +833,94 @@ sub mk_charts() {
 # Close the spreadsheet -- REQUIRED
 sub close_xls() {
   my $xls = shift;
-
   $xls->close();
-
   return(1);
+}
+
+# Serialize and write out the json blob
+sub json_fwrite() {
+  open(JSONOUT, ">", $jsonName) or die "Could not open $jsonName for writing.\n";
+  print JSONOUT encode_json(\%json_buffer);
+  close(JSONOUT);
 }
 
 # saves the data when exitting the program immediately (CTRL+c)
 sub exit_now() {
-  if ($DATAOUT == 1 && $row > 0) {
+  if ($JSONOUT == 1 && $row > 0) {
+    &json_fwrite();
+  }
+  if ($XLSXOUT == 1 && $row > 0) {
     print "\nStatistics collection cancelled. Attempting to save data.\n";
-    &write_summary($summary, \%formats, $row);
     &write_chartData($chtdata, \%formats, $row);
     &mk_charts($workbook, $charts, $row) if $row > 0;
     $workbook->close();
   }
-  else {
+  elsif ($XLSXOUT) {
     print "\nStatistics collection cancelled, no data collected.\n";
     $workbook->close();
   }
   exit(5);
 }
 
+# Inserts commas in output columns
+sub commify() {
+  local $_ = shift;
+  1 while s/^(-?\d+)(\d{3})/$1,$2/;
+  return $_;
+}
 
+# print CLI output
+sub print_cli() {
+  my $out = shift;
+
+  if ($VERBOSE == 1) {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
+          "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+    }
+      printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
+          @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+  }
+  else {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
+          "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+    }
+    printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
+        @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
+  }
+## The following section will print comma-formatted counters. It is functional, but should incorporate
+## a different output option. Maybe something like '-vv' or '--pretty', etc...
+## For now it will remain unimplemented.
+#  if ($VERBOSE => 2) {
+#    @winSize = &GetTerminalSize;
+#    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+#      printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
+#          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+#    }
+#    printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
+#        $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+#        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+#        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+#        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
+#        &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
+#  }
+#    else {
+#      @winSize = &GetTerminalSize;
+#      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+#        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
+#            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+#      }
+#      printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
+#          $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
+#          &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+#          &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+#          &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
+#    }
+
+}
 
 # print script usage and exit with the supplied status
 sub usage() {
@@ -916,9 +934,10 @@ sub usage() {
   -m      IP or hostname to monitor for the start of the test. Use this to 
           monitor the active LTM in a failover pair, but record data from the 
           standby LTM.
-  -l      Full Test duration             (default: 130 seconds)
-  -i      Seconds between polling cycles (default: 10 seconds)
-  -o      Output filename                (default: /dev/null)
+  -l      Full Test duration              (default: 130 seconds)
+  -i      Seconds between polling cycles  (default: 10 seconds)
+  -o      XLSX output filename            (default: /dev/null)
+  -j      JSON output filename            (default: /dev/null)
   -p      Pause time; the amount of time to wait following the start of the 
           test before beginning polling. Should match the ramp-up time (default: 0)
   -v      Verbose output (print stats)
@@ -929,4 +948,3 @@ END
 
   exit($code);
 }
-
