@@ -15,22 +15,27 @@ use strict;
 
 use Config;
 use Getopt::Std;
-use Term::ReadKey;
-use Net::SNMP     qw(:snmp);
 use Time::HiRes   qw(tv_interval gettimeofday ualarm usleep time);
 use Data::Dumper;
-use JSON;
 use Clone         qw/clone/;       
 use List::Util    qw/sum/;
-use Excel::Writer::XLSX;
+my $TRK              = eval { require Term::ReadKey; Term::ReadKey->import(); 1; };
+my $NetSNMP          = eval { require Net::SNMP; Net::SNMP->import(); 1; };
+my $ExcelWriterXLSX  = eval { require Excel::Writer::XLSX; Excel::Writer::XLSX->import(); 1; };
+my $json             = eval { require JSON; JSON->import(); 1; };
+#use JSON;
+#use Term::ReadKey;
+#use Net::SNMP     qw(:snmp);
+#use Excel::Writer::XLSX;
 
 $!++;  # No buffer for STDOUT
 $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 
 ## retrieve and process CLI paramters
 #
-our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PAUSE, $PRETTY);
-getopts('d:m:l:o:j:c:s:i:p:BDvhP', \%opts);
+our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PRETTY, $CUSTOMER);
+our ($TESTNAME, $COMMENTS, $PAUSE);
+getopts('d:m:l:o:j:C:T:m:c:s:i:p:PBDvh', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
@@ -40,16 +45,23 @@ if (!$opts{'d'}) {
   &usage(1);
 }
 
-my $host      = $opts{'d'};                     # snmp host to poll
+my $host      = $opts{'d'} || 'localhost';      # snmp host to poll
 my $secondary = $opts{'m'};                     # monitoring host
-my $testLen   = $opts{'l'} || 130;              # total duration of test in seconds
+my $testLen   = $opts{'l'} || 86400;            # total duration of test in seconds
 my $xlsxName  = $opts{'o'} || '/dev/null';      # xlsx output file name
 my $jsonName  = $opts{'j'} || '/dev/null';      # json output file name
 my $snmpVer   = $opts{'s'} || 'v2c';            # snmp version
 my $comm      = $opts{'c'} || 'public';         # community string    
 my $cycleTime = $opts{'i'} || 10;               # polling interval
 my $pause     = $opts{'p'} || 0;                # pause time
+my $customer  = $opts{'C'} || 'not provided';   # Customer name
+my $testname  = $opts{'T'} || 'not provided';   # Test name
+my $comments  = $opts{'m'} || 'not provided';   # Test comments/description
 
+my %snmpOpts = ( 'host' => $host,
+                 'comm' => $comm,
+                 'ver'  => $snmpVer,
+               );
 
 # The signal handler will throw an error if the output files ($XLSXOUT and $JSONOUT)
 # aren't defined. Cosmetic, but irritating.
@@ -57,20 +69,23 @@ $DEBUG      = ($opts{'D'} ? 1 : 0);
 $XLSXOUT    = ($opts{'o'} ? 1 : 0);
 $JSONOUT    = ($opts{'j'} ? 1 : 0);
 $VERBOSE    = ($opts{'v'} ? 1 : 0);
+$PRETTY     = ($opts{'P'} ? 1 : 0);
 $BYPASS     = ($opts{'B'} ? 1 : 0);
-$PRETTY     = ($opts{'P'} ? 1 : 0);             # pretty terminal output (see print_cli())
+$CUSTOMER   = ($opts{'C'} ? 1 : 0);
+$TESTNAME   = ($opts{'T'} ? 1 : 0);
+$COMMENTS   = ($opts{'m'} ? 1 : 0);
 
 
 if ($DEBUG) {
-  print Dumper(\%opts);
-  #($_ = <<EOF) =~ s/^\s+//gm;
   print "
   XLSXOUT:  $XLSXOUT
   BYPASS:   $BYPASS
   DEBUG:    $DEBUG
   VERBOSE:  $VERBOSE
-  PRETTY:   $PRETTY"
-#EOF
+  PRETTY:   $PRETTY
+  CUSTOMER: $CUSTOMER
+  TESTNAME: $TESTNAME
+  COMMENTS: $COMMENTS"
 }
 
 # additional constants
@@ -85,7 +100,7 @@ my $usCycleTime  = $cycleTime * 1_000_000;
 my (@dataList, @errorList, @staticList, @rowData, @winSize, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
-my ($memUsed, $hMem, $dataVals, $errorVals, $col);
+my ($memUsed, $hMem, $dataVals, $errorVals, $col );
 my ($workbook, $summary, $raw_data, $chtdata, $charts);
 my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $tBytesIn, $tBytesOut);
 my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut);
@@ -95,10 +110,12 @@ my ($iterations, $sleepTime, $runTime, $lastLoopEnd, $loopTime)           = (0, 
 
 my ($old, $cur, $out, $xlsData, $test_meta) = ({}, {}, {}, {}, {});
 my %pollTimer = ();                 # contains event timestamps
+my ($result, $session, $error);
+my %json_buffer;
 
-#$test_meta->{customer}  = "$customer";
-#$test_meta->{test_name} = "$testname";
-#$test_meta->{comments}  = "$comments";
+$test_meta->{customer}  = "$customer";
+$test_meta->{test_name} = "$testname";
+$test_meta->{comments}  = "$comments";
 
 # Build the oid lists and varbind arrays
 my %staticOids  = &get_static_oids();
@@ -123,43 +140,52 @@ while (my ($key, $value) = each(%staticOids)) { push(@staticList, $value); }
 while (my ($key, $value) = each(%dataOids))   { push(@dataList, $value); }
 while (my ($key, $value) = each(%errorOids))  { push(@errorList, $value); }
 
-my ($session, $error) = Net::SNMP->session(
-  -hostname     => $host,
-  -community    => $comm,
-  -version      => $snmpVer,
-  -maxmsgsize   => 8192,
-  -nonblocking  => 0,
-);
-die($error."\n") if ($error);
-
-# determine if logging is required and create the output files
-if ($XLSXOUT) {
-  $DEBUG && print "Creating workbook ($xlsxName)\n";
-  ($workbook, $raw_data, $chtdata, $charts, %formats) = 
-      &mk_perf_xls($xlsxName, \@rawdataHdrs, \@chtDataHdrs, \@dutInfoHdrs);
+# If Net::SNMP is available, use it. If not, use &get_snmp_data
+if ($NetSNMP) {
+  ($session, $error) = Net::SNMP->session(
+    -hostname     => $host,
+    -community    => $comm,
+    -version      => $snmpVer,
+    -maxmsgsize   => 8192,
+    -nonblocking  => 0,
+  );
+  die($error."\n") if ($error);
+  $result = $session->get_request( -varbindlist  => \@staticList);
+}
+else {
+  $result = &get_snmp_data(\%staticOids, \%snmpOpts);
 }
 
+
 # print out some information about the DUT being polled
-my $result = $session->get_request( -varbindlist  => \@staticList);
 print "Platform:    $result->{$staticOids{platform}}\n";
 print "Memory:      $result->{$staticOids{totalMemory}} (".$result->{$staticOids{totalMemory}} / MB." MB)\n";
 print "# of CPUs:   $result->{$staticOids{cpuCount}}\n";
 print "# of blades: $result->{$staticOids{bladeCount}}\n";
 print "LTM Version: $result->{$staticOids{ltmVersion}}\n";
 print "LTM Build:   $result->{$staticOids{ltmBuild}}\n";
+print "\n";
 
-# If a real xlsx is being written to, record DUT vital info on the first sheet
-if ($xlsxName !~ '/dev/null') {
-  #while (my ($k, $v) = each(%staticOids)) { print $k.": ".$result->{$v}."\n"; }
-  $charts->write("A2", $result->{$staticOids{hostName}},    $formats{text});
-  $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
-  $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
-  $charts->write("D2", $result->{$staticOids{ltmBuild}},    $formats{text});
-  $charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{decimal0});
-  $charts->write("F2", $result->{$staticOids{cpuCount}},    $formats{text});
-  $charts->write("G2", $result->{$staticOids{bladeCount}},  $formats{text});
+
+## determine if logging is required and create the output files
+if ($ExcelWriterXLSX) {
+  if ($XLSXOUT) {
+    $DEBUG && print "Creating workbook ($xlsxName)\n";
+    ($workbook, $raw_data, $chtdata, $charts, %formats) = 
+        &mk_perf_xls($xlsxName, \@rawdataHdrs, \@chtDataHdrs, \@dutInfoHdrs);
+  }
+
+  # If a real xlsx is being written to, record DUT vital info on the first sheet
+  if ($xlsxName !~ '/dev/null') {
+    $charts->write("A2", $result->{$staticOids{hostName}},    $formats{text});
+    $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
+    $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
+    $charts->write("D2", $result->{$staticOids{ltmBuild}},    $formats{text});
+    $charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{decimal0});
+    $charts->write("F2", $result->{$staticOids{cpuCount}},    $formats{text});
+    $charts->write("G2", $result->{$staticOids{bladeCount}},  $formats{text});
+  }
 }
-
 
 $test_meta->{host_name}     = $result->{$staticOids{hostName}};
 $test_meta->{platform}      = $result->{$staticOids{platform}};
@@ -169,32 +195,38 @@ $test_meta->{memory}        = $result->{$staticOids{totalMemory}};
 $test_meta->{ltm_version}   = $result->{$staticOids{ltmVersion}};
 $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
 
-my %json_buffer = ( 'metadata' => $test_meta,
-                    'perfdata' => [],
-                  );
+if ($json) {
+  %json_buffer = ( 'metadata' => $test_meta,
+                   'perfdata' => {},
+                    );
+};
 
 ##
 ## Begin Main
 ##
 
 # loop until start-of-test is detected
-if ($opts{'m'}) {
-  my ($watchhost, $error) = Net::SNMP->session(
-    -hostname     => $secondary,
-    -community    => $comm,
-    -version      => $snmpVer,
-    -maxmsgsize   => 8192,
-    -nonblocking  => 0,
-  );
-  die($error."\n") if ($error);
-  &detect_test($watchhost, \%dataOids) unless $BYPASS;
-}
-else {
-  &detect_test($session, \%dataOids) unless $BYPASS;
+if (!$BYPASS) {
+  if ($NetSNMP) {
+    if ($opts{'m'}) {
+      my ($watchhost, $error) = Net::SNMP->session(
+        -hostname     => $secondary,
+        -community    => $comm,
+        -version      => $snmpVer,
+        -maxmsgsize   => 8192,
+        -nonblocking  => 0,
+      );
+      die($error."\n") if ($error);
+      &detect_test_netsnmp($watchhost, \%dataOids) unless $BYPASS;
+    }
+    &detect_test_netsnmp($session, \%dataOids) unless $BYPASS;
+  }
+  else {
+    &detect_test_snmpget(\%dataOids, \%snmpOpts) unless $BYPASS;
+  }
 }
 
 if ($pause) {
-#if ($pause && !$BYPASS) {
   print "Pausing for ".$pause." seconds while for ramp-up\n";
   sleep($pause);
 }
@@ -208,8 +240,13 @@ do {
 
 
   # get snmp stats from DUT
-  $dataVals = $session->get_request( -varbindlist  => \@dataList);
-  die($session->error."\n") if (!defined($dataVals));
+  if ($NetSNMP) {
+    $dataVals = $session->get_request( -varbindlist  => \@dataList);
+    die($session->error."\n") if (!defined($dataVals));
+  }
+  else {
+    $dataVals = &get_snmp_data(\%dataOids, \%snmpOpts);
+  }
 
   $pollTimer{queryTime}     = tv_interval($pollTimer{activeStart});
   $pollTimer{lastPollTime}  = $pollTimer{pollTime};
@@ -285,50 +322,71 @@ do {
     $out->{tmmUtil}       = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
 
     # Print real-time stats to terminal
-    &print_cli($out);  
+    # Use Term::Readkey if present, otherwise use 'format' statements
+    if ($TRK) {
+      &print_cli($out);  
+    }
+    else {
+# Print updates to the screen during the test
+format STDOUT_TOP =
+@>>>>  @>>>>   @>>>>  @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
+.
+format =
+@>>>>  @>>>>   @>>>>  @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+@$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns cCurConns sCurConns cBitsIn cBitsOut/}
+.
+write;
 
-    # If requested, write the output file.
-    if ($XLSXOUT) {
-      $row++;
-      &write_rawdata($raw_data, $row, $cur, %formats);
-      $raw_data->write($row, 0, $out->{runTime}, $formats{decimal4});
-      $raw_data->write($row, 1, $out->{cpuUtil}, $formats{decimal2});
-      $raw_data->write($row, 2, $out->{tmmUtil}, $formats{decimal2});
-
-      $raw_data->write( $row, 
-                        3,
-                        [$cur->{memUsed},
-                        sprintf("%.0f", $cur->{cBytesIn}),
-                        sprintf("%.0f", $cur->{cBytesOut}),
-                        sprintf("%.0f", $cur->{cPktsIn}),
-                        sprintf("%.0f", $cur->{cPktsOut}),
-                        sprintf("%.0f", $cur->{sBytesIn}),
-                        sprintf("%.0f", $cur->{sBytesOut}),
-                        sprintf("%.0f", $cur->{sPktsIn}),
-                        sprintf("%.0f", $cur->{sPktsOut}),
-                        sprintf("%.0f", $cur->{clientCurConns}),
-                        sprintf("%.0f", $cur->{clientTotConns}),
-                        sprintf("%.0f", $cur->{serverCurConns}),
-                        sprintf("%.0f", $cur->{serverTotConns}),
-                        sprintf("%.0f", $cur->{totHttpReq}),
-                        sprintf("%.0f", $cur->{cPvaBytesIn}),
-                        sprintf("%.0f", $cur->{cPvaBytesOut}),
-                        sprintf("%.0f", $cur->{cBytesIn}),
-                        sprintf("%.0f", $cur->{cBytesOut}),
-                        sprintf("%.0f", $cur->{sPvaBytesIn}),
-                        sprintf("%.0f", $cur->{sPvaBytesOut}),
-                        sprintf("%.0f", $cur->{sBytesIn}),
-                        sprintf("%.0f", $cur->{sBytesOut})],
-                       $formats{'standard'});
     }
 
-    # Save data in json_buffer in case that output has been requested
-    # Make sure we 'numify' the data-points before writing them out
-    foreach my $k (keys %$out) { $out->{$k} += 0; }
-    push(@{$json_buffer{perfdata}}, $out);
-  }
+    # If requested, write the output file.
+    if ($ExcelWriterXLSX) {
+      if ($XLSXOUT) {
+        $row++;
+        &write_rawdata($raw_data, $row, $cur, %formats);
+        $raw_data->write($row, 0, $out->{runTime}, $formats{decimal4});
+        $raw_data->write($row, 1, $out->{cpuUtil}, $formats{decimal2});
+        $raw_data->write($row, 2, $out->{tmmUtil}, $formats{decimal2});
 
-  # update 'old' data with the current values to calculate delta next cycle
+        $raw_data->write( $row, 
+                          3,
+                          [$cur->{memUsed},
+                          sprintf("%.0f", $cur->{cBytesIn}),
+                          sprintf("%.0f", $cur->{cBytesOut}),
+                          sprintf("%.0f", $cur->{cPktsIn}),
+                          sprintf("%.0f", $cur->{cPktsOut}),
+                          sprintf("%.0f", $cur->{sBytesIn}),
+                          sprintf("%.0f", $cur->{sBytesOut}),
+                          sprintf("%.0f", $cur->{sPktsIn}),
+                          sprintf("%.0f", $cur->{sPktsOut}),
+                          sprintf("%.0f", $cur->{clientCurConns}),
+                          sprintf("%.0f", $cur->{clientTotConns}),
+                          sprintf("%.0f", $cur->{serverCurConns}),
+                          sprintf("%.0f", $cur->{serverTotConns}),
+                          sprintf("%.0f", $cur->{totHttpReq}),
+                          sprintf("%.0f", $cur->{cPvaBytesIn}),
+                          sprintf("%.0f", $cur->{cPvaBytesOut}),
+                          sprintf("%.0f", $cur->{cBytesIn}),
+                          sprintf("%.0f", $cur->{cBytesOut}),
+                          sprintf("%.0f", $cur->{sPvaBytesIn}),
+                          sprintf("%.0f", $cur->{sPvaBytesOut}),
+                          sprintf("%.0f", $cur->{sBytesIn}),
+                          sprintf("%.0f", $cur->{sBytesOut})],
+                         $formats{'standard'});
+      }
+    }
+
+      if ($json) {
+        # Save data in json_buffer in case that output has been requested
+        # Make sure we 'numify' the data-points before writing them out
+        foreach my $k (keys %$cur) { $cur->{$k} += 0; }
+        $json_buffer{perfdata}{$out->{runTime}} = [];
+        push(@{$json_buffer{perfdata}{$out->{runTime}}}, $cur);
+      }
+    }
+
+    # update 'old' data with the current values to calculate delta next cycle
   $old = clone($cur);
 
   # Calculate how much time this iteration has required to determine how
@@ -350,18 +408,22 @@ do {
 } while ($runTime < $testLen);
 
 # polling is now complete, time to write the output files (if requested)
-if ( $JSONOUT) {
-  print "Writing JSON output file: $jsonName\n";
-  &json_fwrite();
+if ($json) {
+  if ($JSONOUT) {
+    print "Writing JSON output file: $jsonName\n";
+    &json_fwrite();
+  }
 }
 
-if ($XLSXOUT) {
-  print "Writing XLSX output file: $xlsxName\n";
-  &write_chartData($chtdata, \%formats, $row);
-  &mk_charts($workbook, $charts, $row);
+if ($ExcelWriterXLSX) {
+  if ($XLSXOUT) {
+    print "Writing XLSX output file: $xlsxName\n";
+    &write_chartData($chtdata, \%formats, $row);
+    &mk_charts($workbook, $charts, $row);
 
-  # close the workbook; required for the workbook to be usable.
-  &close_xls($workbook);
+    # close the workbook; required for the workbook to be usable.
+    &close_xls($workbook);
+  }
 }
 
 
@@ -380,10 +442,31 @@ sub bytes_to_MB     { return sprintf("%d", $_[0] / (1024 * 1024)) };
 sub cpu_util        { return ($_[0] == 0) ? 0 : (($_[0] - $_[1]) / $_[0]) * 100 };
 
 # delay the start of the script until the test is detected through pkts/sec
-sub detect_test() {
+sub detect_test_snmpget() {
+  my $oids = shift;
+  my $opts = shift;
+  my $pkts = 3000;
+
+  print "\nWaiting for test to begin...\n";
+
+  while (1) {
+    #print "snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}\n";
+    my $r1 = `snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}`;
+    sleep(4);
+    my $r2 = `snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}`;
+
+    my $delta = $r2 - $r1;
+  
+    if ($delta > $pkts) {
+      print "Start of test detected...\n\n";
+      return;
+    }
+  }
+}
+sub detect_test_netsnmp() {
   my $snmp = shift;
   my $oids = shift;
-  my $pkts = 1000;
+  my $pkts = 3000;
 
   print "\nWaiting for test to begin...\n";
 
@@ -392,14 +475,34 @@ sub detect_test() {
     sleep(4);
     my $r2 = $snmp->get_request($$oids{tmmClientPktsIn});
 
-    my $delta = $r2->{$$oids{tmmClientPktsIn}}- 
-                $r1->{$$oids{tmmClientPktsIn}};
+    my $delta = $r2->{$$oids{tmmClientPktsIn}} - $r1->{$$oids{tmmClientPktsIn}};
   
     if ($delta > $pkts) {
       print "Start of test detected...\n\n";
       return;
     }
   }
+}
+
+# Retrieve snmp data using snmpget
+sub get_snmp_data() {
+  my $oids = shift;
+  my $opts = shift;
+
+  my $oidlist = "";
+  my @output;
+  my ($oid, $value);
+  my (%results, %data);
+
+  for my $o (values(%$oids)) { $oidlist = $oidlist.' '.$o; };
+  @output = `snmpget -t2 -Onq -c $opts->{comm} $opts->{host} $oidlist`;
+
+  foreach (@output) {
+    chomp($_);
+    my ($oid, $value) = split(' ', $_);
+    $data{$oid} = $value;
+  }
+  return(\%data);
 }
 
 # Write data to the 'raw_data' tab
@@ -578,26 +681,15 @@ sub get_static_oids() {
   my %oidlist = ( 'ltmVersion'   => '.1.3.6.1.4.1.3375.2.1.4.2.0',
                   'ltmBuild'     => '.1.3.6.1.4.1.3375.2.1.4.3.0',
                   'platform'     => '.1.3.6.1.4.1.3375.2.1.3.3.1.0',
-                  'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.38.0',
-                  'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.1.44.0',
+                  #'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.38.0',
+                  #'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.1.44.0',
+                  'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.39.0',
+                  'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.21.28.0',
                   'hostName'     => '.1.3.6.1.4.1.3375.2.1.6.2.0',
                   'bladeCount'   => '.1.3.6.1.4.1.3375.2.1.7.4.1.0',
                 );
 
   return(%oidlist);
-}
-
-# returns a hash containing oids for web acceleration (caching and compression)
-sub get_wa_oids() {
-  my %oidList = (
-    'httpPrecompressBytes'      => '.1.3.6.1.4.1.3375.2.1.1.2.22.2.0',
-    'httpPostcompressBytes'     => '.1.3.6.1.4.1.3375.2.1.1.2.22.3.0',
-    'httpNullCompressBytes'     => '.1.3.6.1.4.1.3375.2.1.1.2.22.2.0',
-    'waCacheHits'               => '.1.3.6.1.4.1.3375.2.1.1.2.23.2.0',
-    'waCacheMisses'             => '.1.3.6.1.4.1.3375.2.1.1.2.23.3.0',
-    'waCacheMissesAll'          => '.1.3.6.1.4.1.3375.2.1.1.2.23.4.0',
-    'waCacheHitBytes'           => '.1.3.6.1.4.1.3375.2.1.1.2.23.5.0',
-  );
 }
 
 # returns a has containing oids that track errors
@@ -655,6 +747,14 @@ sub mk_perf_xls() {
   $chtData->set_column('D:G', 15);
   $chtData->set_column('H:O', 18);
   #$chtData->activate();
+
+#  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
+#  my $summary = $workbook->add_worksheet('summary');
+#  $summary->set_zoom(80);
+#  $summary->set_column('A:C', 9);
+#  $summary->set_column('D:D', 15);
+#  $summary->set_column('E:E', 13);
+#  $summary->set_column('F:Q', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
@@ -861,54 +961,64 @@ sub commify() {
   return $_;
 }
 
-# print CLI output
+
+# print CLI output using printf + Term:: Readkey
 sub print_cli() {
   my $out = shift;
 
   if ($VERBOSE == 1 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("\n%7s% 7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
+      printf("%7s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
     }
-      printf("%7.2f% 7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
+      printf("%7.2f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
   }
-  elsif ($VERBOSE == 0) {
+  elsif ($VERBOSE == 0 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
       printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
-          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
+          "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
     }
     printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
         @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
   }
-  # The following section will print comma-formatted counters. Activate with the -P cli option
+# The following section will print comma-formatted counters. It is functional, but should incorporate
+# a different output option. Maybe something like '-vv' or '--pretty', etc...
+# For now it will remain unimplemented.
   if ($VERBOSE == 1 && $PRETTY == 1) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s %10s %10s\n",
-          "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+      printf("%7s % 7s % 7s % 10s % 8s % 8s % 8s % 9s % 9s % 9s % 9s % 9s % 9s\n",
+          "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
+          "cCPS", "sCPS", "HTTPReq",
+          "cConns", "sConns",
+          "In/Mbs", "Out/Mbs",
+          "cPPS In", "cPPS Out");
     }
-    printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s % 10s % 10s\n",
-        $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
-        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+    printf("%7.2f %7.2f %7.2f %10d %8d %8d %8d %9d %9d %9d %9d %9d %9d\n",
+        $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
+        &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
         &commify($out->{cCurConns}), &commify($out->{sCurConns}),
         &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
         &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
   }
-    elsif ($VERBOSE == 0 && $PRETTY == 1) {
-      @winSize = &GetTerminalSize;
-      if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-        printf("\n%7s %6s  %8s %9s %9s   %9s   %9s %7s %7s\n",
-            "RunTime", "tmmCPU", "Mem (MB)", "cCPS", "sCPS", "cConns", "sConns", "In/Mbs", "Out/Mbs");
-      }
-      printf("%7.2f% 7.2f %9s % 9s % 9s  %10s  %10s % 7s % 7s\n",
-          $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
-          &commify($out->{cNewConns}), &commify($out->{sNewConns}),
-          &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-          &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
+  elsif ($VERBOSE == 0 && $PRETTY == 1) {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("%7s % 7s % 7s % 11s % 8s % 8s % 9s % 9s % 9s % 9s\n",
+          "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
+          "cCPS", "sCPS",
+          "cConns", "sConns",
+          "In/Mbs", "Out/Mbs");
     }
+    printf("%7.2f % 7.2f % 7.2f % 11s % 8s % 8s % 9s % 9s % 9s % 9s\n",
+        $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
+        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
+        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
+  }
 }
 
 # print script usage and exit with the supplied status
@@ -916,24 +1026,22 @@ sub usage() {
   my $code = shift;
 
   print <<END;
-  USAGE:  $0 -d <host> -l <duration> -o|j <output>
+  USAGE:  $0 -d <host> -l <total test length> -o <output file>
           $0 -h
 
   -d      IP or hostname to query (REQUIRED)
   -m      IP or hostname to monitor for the start of the test. Use this to 
           monitor the active LTM in a failover pair, but record data from the 
           standby LTM.
-  -c      SNMP community string           (default: public)
-  -s      SNMP version                    (default: v2c)
   -l      Full Test duration              (default: 130 seconds)
   -i      Seconds between polling cycles  (default: 10 seconds)
   -o      XLSX output filename            (default: /dev/null)
   -j      JSON output filename            (default: /dev/null)
   -p      Pause time; the amount of time to wait following the start of the 
           test before beginning polling. Should match the ramp-up time (default: 0)
+  -v      Verbose output (print verbose stats)
+  -P      Pretty output  (Stats with digital grouping)
   -B      Bypass start-of-test detection and start polling immediately
-  -v      Verbose output (print real-time stats during data collection)
-  -P      Add commas to output stats for readability (under development)
   -h      Print usage and exit
 
 END
