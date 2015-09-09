@@ -109,7 +109,7 @@ my (@dataList, @errorList, @staticList, @rowData, @winSize, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
 my ($memUsed, $hMem, $dataVals, $errorVals, $col );
-my ($workbook, $summary, $raw_data, $chtdata, $charts);
+my ($workbook, $raw_data, $chtdata, $charts);
 my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $tBytesIn, $tBytesOut);
 my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut);
 my ($cNewConns, $sNewConns, $ccPktsIn, $ccPktsOut, $cBitsIn, $cBitsOut)   = (0, 0, 0, 0, 0, 0);
@@ -715,7 +715,6 @@ sub mk_perf_xls() {
   my $rawHdrs = shift;
   my $chtHdrs = shift;
   my $dutHdrs = shift;
-#  my $sumHdrs = shift;
   my %hdrfmts;
 
   ## create Excel workbook
@@ -743,35 +742,22 @@ sub mk_perf_xls() {
   $charts->activate();
 
   # create the worksheet that will contain the data used for the charts
-  # similiar to the 'summary' worksheet, but with fewer columns
   my $chtData = $workbook->add_worksheet('chart_data');
   $chtData->set_zoom(80);
   $chtData->set_column('A:C', 9);
   $chtData->set_column('D:G', 15);
   $chtData->set_column('H:O', 18);
-  #$chtData->activate();
-
-#  # the 'summary' worksheet contains summarized data from the 'raw_data' worksheet
-#  my $summary = $workbook->add_worksheet('summary');
-#  $summary->set_zoom(80);
-#  $summary->set_column('A:C', 9);
-#  $summary->set_column('D:D', 15);
-#  $summary->set_column('E:E', 13);
-#  $summary->set_column('F:Q', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
   $rawdata->set_zoom(80);
   $rawdata->set_column('A:C', 9);
   $rawdata->set_column('D:Z', 17);
-  #$rawdata->activate();
 
   $charts->write( 0, 0, $dutHdrs, $hdrfmts{'headers'});
   $chtData->write(0, 0, $chtHdrs, $hdrfmts{'headers'});
-#  $summary->write(0, 0, $sumHdrs, $hdrfmts{'headers'});
   $rawdata->write(0, 0, $rawHdrs, $hdrfmts{'headers'});
 
-#  return($workbook, $rawdata, $summary, $chtData, $charts, %hdrfmts);
   return($workbook, $rawdata, $chtData, $charts, %hdrfmts);
 }
 
