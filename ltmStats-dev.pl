@@ -356,10 +356,10 @@ write;
 
     }
 
-    # If requested, write the output file.
+    # Increment $row, used to track which iteration this is and which xlsx row should be written to
+    $row++;
     if ($ExcelWriterXLSX) {
       if ($XLSXOUT) {
-        $row++;
         &write_rawdata($raw_data, $row, $cur, %formats);
         $raw_data->write($row, 0, $out->{runTime}, $formats{decimal4});
         $raw_data->write($row, 1, $out->{cpuUtil}, $formats{decimal2});
@@ -396,9 +396,11 @@ write;
       if ($json) {
         # Save data in json_buffer in case that output has been requested
         # Make sure we 'numify' the data-points before writing them out
-        foreach my $k (keys %$cur) { $cur->{$k} += 0; }
-        $json_buffer{perfdata}{$out->{runTime}} = [];
-        push(@{$json_buffer{perfdata}{$out->{runTime}}}, $cur);
+        $json_buffer{perfdata}{$runTime} = {};
+        foreach my $k (keys %$cur) {
+          $cur->{$k} += 0; 
+          $json_buffer{perfdata}{$runTime}{$k} = $cur->{$k};
+        }
       }
     }
 
@@ -427,7 +429,7 @@ write;
 if ($json) {
   if ($JSONOUT) {
     print "Writing JSON output file: $jsonName\n";
-    &json_fwrite();
+    &write_json($jsonName, \%json_buffer);
   }
 }
 
@@ -919,9 +921,11 @@ sub close_xls() {
 }
 
 # Serialize and write out the json blob
-sub json_fwrite() {
-  open(JSONOUT, ">", $jsonName) or die "Could not open $jsonName for writing.\n";
-  print JSONOUT encode_json(\%json_buffer);
+sub write_json() {
+  my $json_file = shift;
+  my $json_data = shift;
+  open(JSONOUT, ">", $json_file) or die "Could not open $json_file for writing.\n";
+  print JSONOUT encode_json($json_data);
   close(JSONOUT);
 }
 
@@ -930,7 +934,7 @@ sub exit_now() {
   print "\nStatistics collection cancelled. Attempting to save data.\n";
   if ($JSONOUT && $row > 0) {
     print "Writing JSON: $jsonName\n";
-    &json_fwrite();
+    &write_json($jsonName, \%json_buffer);
   }
   if ($XLSXOUT && $row > 0) {
     print "Writing XLSX: $xlsxName\n";
@@ -938,9 +942,10 @@ sub exit_now() {
     &mk_charts($workbook, $charts, $row) if $row > 0;
     $workbook->close();
   }
-  elsif ($XLSXOUT) {
+  if (($XLSXOUT || $JSONOUT) && ($row < 1)) {
+    print "row: $row\n";
     print "\nStatistics collection cancelled, no data collected.\n";
-    $workbook->close();
+    if ($XLSXOUT) { $workbook->close(); }
   }
   exit(5);
 }
