@@ -35,15 +35,15 @@ $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 #
 our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PRETTY, $CUSTOMER);
 our ($TESTNAME, $COMMENTS, $PAUSE);
-getopts('d:m:l:o:j:C:T:m:c:s:i:p:PBDvh', \%opts);
+getopts('d:m:l:o:j:C:T:m:c:s:i:p:D:PBvh', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
 
-if (!$opts{'d'}) {
-  warn("Must provide a hostname or IP address to query\n");
-  &usage(1);
-}
+#if (!$opts{'d'}) {
+#  warn("Must provide a hostname or IP address to query\n");
+#  &usage(1);
+#}
 
 my $host      = $opts{'d'} || 'localhost';      # snmp host to poll
 my $secondary = $opts{'m'};                     # monitoring host
@@ -57,6 +57,7 @@ my $pause     = $opts{'p'} || 0;                # pause time
 my $customer  = $opts{'C'} || 'not provided';   # Customer name
 my $testname  = $opts{'T'} || 'not provided';   # Test name
 my $comments  = $opts{'m'} || 'not provided';   # Test comments/description
+$DEBUG        = $opts{'D'} || 0;                # Debug level
 
 my %snmpOpts = ( 'host' => $host,
                  'comm' => $comm,
@@ -65,7 +66,7 @@ my %snmpOpts = ( 'host' => $host,
 
 # The signal handler will throw an error if the output files ($XLSXOUT and $JSONOUT)
 # aren't defined. Cosmetic, but irritating.
-$DEBUG      = ($opts{'D'} ? 1 : 0);
+#$DEBUG      = ($opts{'D'} ? 1 : 0);
 $XLSXOUT    = ($opts{'o'} ? 1 : 0);
 $JSONOUT    = ($opts{'j'} ? 1 : 0);
 $VERBOSE    = ($opts{'v'} ? 1 : 0);
@@ -78,14 +79,21 @@ $COMMENTS   = ($opts{'m'} ? 1 : 0);
 
 if ($DEBUG) {
   print "
-  XLSXOUT:  $XLSXOUT
-  BYPASS:   $BYPASS
-  DEBUG:    $DEBUG
-  VERBOSE:  $VERBOSE
-  PRETTY:   $PRETTY
-  CUSTOMER: $CUSTOMER
-  TESTNAME: $TESTNAME
-  COMMENTS: $COMMENTS"
+  XLSXOUT:              $XLSXOUT (xlsxName: $xlsxName)
+  JSONOUT:              $JSONOUT (jsonName: $jsonName)
+  BYPASS:               $BYPASS
+  DEBUG:                $DEBUG
+  VERBOSE:              $VERBOSE
+  PRETTY:               $PRETTY
+  CUSTOMER:             $CUSTOMER
+  TESTNAME:             $TESTNAME
+  COMMENTS:             $COMMENTS
+  Term::ReadKey:        $TRK
+  Net::SNMP:            $NetSNMP
+  Excel::Writer::XLSX:  $ExcelWriterXLSX
+  JSON:                 $json
+
+"
 }
 
 # additional constants
@@ -281,23 +289,31 @@ do {
   $cur->{serverCurConns}  = $xlsData->{tmmServerCurConns};
   $cur->{clientTotConns}  = $xlsData->{tmmClientTotConns};
   $cur->{serverTotConns}  = $xlsData->{tmmServerTotConns};
-  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};   # Client PVA bytes in
-  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};  # Client PVA bytes out
-  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};   # Client TMM bytes in
-  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};  # Client TMM bytes out
-  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};   # Server PVA bytes in
-  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};  # Server PVA bytes out
-  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};   # Server TMM bytes in
-  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};  # Server TMM bytes out
-  $cur->{cBytesIn}        = $xlsData->{tmmClientBytesIn}    + $xlsData->{pvaClientBytesIn};   # Client total bytes in
-  $cur->{cBytesOut}       = $xlsData->{tmmClientBytesOut}   + $xlsData->{pvaClientBytesOut};  # Client total bytes out
-  $cur->{sBytesIn}        = $xlsData->{tmmServerBytesIn}    + $xlsData->{pvaServerBytesIn};   # Server total bytes in
-  $cur->{sBytesOut}       = $xlsData->{tmmServerBytesOut}   + $xlsData->{pvaServerBytesOut};  # Server total bytes out
-  $cur->{cPktsIn}         = $xlsData->{tmmClientPktsIn}     + $xlsData->{pvaClientPktsIn};    # Client total packets in
-  $cur->{cPktsOut}        = $xlsData->{tmmClientPktsOut}    + $xlsData->{pvaClientPktsOut};   # Client total packets out
-  $cur->{sPktsIn}         = $xlsData->{tmmServerPktsIn}     + $xlsData->{pvaServerPktsIn};    # Server total packets in
-  $cur->{sPktsOut}        = $xlsData->{tmmServerPktsOut}    + $xlsData->{pvaServerPktsOut};   # Server total packets out
   $cur->{totHttpReq}      = $xlsData->{sysStatHttpRequests};
+  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};     # Client PVA bytes in
+  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};    # Client PVA bytes out
+  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};     # Client TMM bytes in
+  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};    # Client TMM bytes out
+  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};     # Server PVA bytes in
+  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};    # Server PVA bytes out
+  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};     # Server TMM bytes in
+  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};    # Server TMM bytes out
+  $cur->{cTmmPktsIn}      = $xlsData->{tmmClientPktsIn};      # Client TMM packets in
+  $cur->{cTmmPktsOut}     = $xlsData->{tmmClientPktsOut};     # Client TMM packets Out
+  $cur->{sTmmPktsIn}      = $xlsData->{tmmServerPktsIn};      # Server TMM packets in
+  $cur->{sTmmPktsOut}     = $xlsData->{tmmServerPktsOut};     # Server TMM packets Out
+  $cur->{cPvaPktsIn}      = $xlsData->{pvaClientPktsIn};      # Client PVA packets in
+  $cur->{cPvaPktsOut}     = $xlsData->{pvaClientPktsOut};     # Client PVA packets Out
+  $cur->{sPvaPktsIn}      = $xlsData->{pvaServerPktsIn};      # Server PVA packets in
+  $cur->{sPvaPktsOut}     = $xlsData->{pvaServerPktsOut};     # Server PVA packets Out
+  $cur->{cBytesIn}        = $cur->{cTmmBytesIn}  + $cur->{cPvaBytesIn};   # Client total bytes in
+  $cur->{cBytesOut}       = $cur->{cTmmBytesOut} + $cur->{cPvaBytesOut};  # Client total bytes out
+  $cur->{sBytesIn}        = $cur->{sTmmBytesIn}  + $cur->{sPvaBytesIn};   # Server total bytes in
+  $cur->{sBytesOut}       = $cur->{sTmmBytesOut} + $cur->{sPvaBytesOut};  # Server total bytes out
+  $cur->{cPktsIn}         = $cur->{cTmmPktsIn}   + $cur->{cPvaPktsIn};    # Client total packets in
+  $cur->{cPktsOut}        = $cur->{cTmmPktsOut}  + $cur->{cPvaPktsOut};   # Client total packets out
+  $cur->{sPktsIn}         = $cur->{sTmmPktsIn}   + $cur->{sPvaPktsIn};    # Server total packets in
+  $cur->{sPktsOut}        = $cur->{sTmmPktsOut}  + $cur->{sPvaPktsOut};   # Server total packets out
   $cur->{cpuUtil}         = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
   $cur->{tmmUtil}         = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
   $cur->{runTime}         = $runTime;
@@ -396,7 +412,7 @@ write;
 
   my $wakeTime = Time::HiRes::time() + $sleepTime;
 
-  if ($DEBUG) {
+  if ($DEBUG >1 ) {
     print "Query: $pollTimer{queryTime}, iteration: $pollTimer{iterationTime}, sleep: $sleepTime, loop: $loopTime\n";
   }
 
@@ -432,11 +448,11 @@ if ($ExcelWriterXLSX) {
 ##
 
 # utility subs
-sub delta           { return (!exists $old->{$_[0]} ? 0 : $cur->{$_[0]} - $old->{$_[0]}); }
-sub delta2          {
-  printf("Old: %.0f   Cur: %.0f   Diff: %.0f\n", $old->{$_[0]}, $cur->{$_[0]}, $cur->{$_[0]} - $old->{$_[0]});
-  return ((!exists $old->{$_[0]}) ? 0 : ($cur->{$_[0]} - $old->{$_[0]}));
-};
+sub delta           { 
+  if ($DEBUG > 3) {
+    printf("($_[0]) Old: %.0f   Cur: %.0f   Diff: %.0f\n", $old->{$_[0]}, $cur->{$_[0]}, $cur->{$_[0]} - $old->{$_[0]});
+  }
+  return (!exists $old->{$_[0]} ? 0 : $cur->{$_[0]} - $old->{$_[0]}); }
 sub bytes_to_Mbits  { return sprintf("%.0f", ($_[0] * 8) / 1_000_000) };
 sub bytes_to_MB     { return sprintf("%d", $_[0] / (1024 * 1024)) };
 sub cpu_util        { return ($_[0] == 0) ? 0 : (($_[0] - $_[1]) / $_[0]) * 100 };
@@ -450,7 +466,7 @@ sub detect_test_snmpget() {
   print "\nWaiting for test to begin...\n";
 
   while (1) {
-    #print "snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}\n";
+    $DEBUG && print "snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}\n";
     my $r1 = `snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}`;
     sleep(4);
     my $r2 = `snmpget -t2 -Ovq -c $opts->{comm} $opts->{host} $$oids{tmmClientPktsIn}`;
@@ -608,7 +624,7 @@ sub write_chartData() {
 
     );
 
-    $DEBUG && print Dumper(\@rowData);
+    if ($DEBUG > 1) { print Dumper(\@rowData); }
     $worksheet->write($row0, 0, $rowTime,  ${$formats}{'decimal0'});
     $worksheet->write($row0, 1, $rowCPU,   ${$formats}{'decimal0'});
     $worksheet->write($row0, 2, $rowTMM,   ${$formats}{'decimal0'});
@@ -653,19 +669,6 @@ sub get_f5_oids() {
       'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.28.0',
       'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.29.0',
   );
-      # per-pva (blade) oids
-      #'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.2',
-      #'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.3',
-      #'pvaClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.4',
-      #'pvaClientBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.5',
-      #'pvaClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.7',
-      #'pvaClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.8',
-      #'pvaServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.9',
-      #'pvaServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.10',
-      #'pvaServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.11',
-      #'pvaServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.12',
-      #'pvaServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.14',
-      #'pvaServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.8.1.3.1.15',
   return(%oidlist);
 }
 
@@ -683,8 +686,8 @@ sub get_static_oids() {
                   'platform'     => '.1.3.6.1.4.1.3375.2.1.3.3.1.0',
                   #'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.38.0',
                   #'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.1.44.0',
-                  'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.39.0',
-                  'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.21.28.0',
+                  'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.39.0',   # active blades only
+                  'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.21.28.0',  # active blades only
                   'hostName'     => '.1.3.6.1.4.1.3375.2.1.6.2.0',
                   'bladeCount'   => '.1.3.6.1.4.1.3375.2.1.7.4.1.0',
                 );
@@ -719,7 +722,7 @@ sub mk_perf_xls() {
   my $workbook = Excel::Writer::XLSX->new($fname);
 
   # define formatting
-  $DEBUG && print "Generating workbook formats (mk_perf_xls())\n";
+  if ($DEBUG > 1) { print "Generating workbook formats (mk_perf_xls())\n"; }
   $hdrfmts{'text'}     = $workbook->add_format(align => 'center');
   $hdrfmts{'headers'}  = $workbook->add_format(align => 'center', bold => 1, bottom => 1);
   $hdrfmts{'standard'} = $workbook->add_format(align => 'center', num_format => '#,##0');
@@ -778,7 +781,7 @@ sub mk_charts() {
   my $worksheet = shift;
   my $numRows   = shift;
 
-  $DEBUG && print "Writing 'charts' worksheet.\n";
+  if ($DEBUG > 1) { print "Writing 'charts' worksheet.\n"; }
 
   ## CPU Usage chart
   my $chtCpu  = $fname->add_chart( type => 'line', embedded => 1);
@@ -938,11 +941,13 @@ sub json_fwrite() {
 
 # saves the data when exitting the program immediately (CTRL+c)
 sub exit_now() {
-  if ($JSONOUT == 1 && $row > 0) {
+  print "\nStatistics collection cancelled. Attempting to save data.\n";
+  if ($JSONOUT && $row > 0) {
+    print "Writing JSON: $jsonName\n";
     &json_fwrite();
   }
-  if ($XLSXOUT == 1 && $row > 0) {
-    print "\nStatistics collection cancelled. Attempting to save data.\n";
+  if ($XLSXOUT && $row > 0) {
+    print "Writing XLSX: $xlsxName\n";
     &write_chartData($chtdata, \%formats, $row);
     &mk_charts($workbook, $charts, $row) if $row > 0;
     $workbook->close();
@@ -990,14 +995,16 @@ sub print_cli() {
   if ($VERBOSE == 1 && $PRETTY == 1) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s % 7s % 7s % 10s % 8s % 8s % 8s % 9s % 9s % 9s % 9s % 9s % 9s\n",
+      #printf("%7s % 7s % 7s % 10s % 8s % 8s % 8s % 9s % 9s % 9s % 9s % 9s % 9s\n",
+      printf("% 7s % 7s % 7s % 10s % 9s % 9s % 9s % 10s % 10s % 10s % 10s % 10s % 10s\n",
           "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
           "cCPS", "sCPS", "HTTPReq",
           "cConns", "sConns",
           "In/Mbs", "Out/Mbs",
           "cPPS In", "cPPS Out");
     }
-    printf("%7.2f %7.2f %7.2f %10d %8d %8d %8d %9d %9d %9d %9d %9d %9d\n",
+    #printf("%7.2f %7.2f %7.2f %10s %8s %8s %8s %9s %9s %9s %9s %9s %9s\n",
+    printf("%7.2f %7.2f %7.2f % 10s % 9s % 9s % 9s % 10s % 10s % 10s % 10s % 10s % 10s\n",
         $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
         &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
         &commify($out->{cCurConns}), &commify($out->{sCurConns}),
