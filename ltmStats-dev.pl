@@ -40,14 +40,9 @@ getopts('d:m:l:o:j:C:T:m:c:s:i:p:D:PBvh', \%opts);
 # print usage and exit
 &usage(0) if $opts{'h'};
 
-#if (!$opts{'d'}) {
-#  warn("Must provide a hostname or IP address to query\n");
-#  &usage(1);
-#}
-
 my $host      = $opts{'d'} || 'localhost';      # snmp host to poll
 my $secondary = $opts{'m'};                     # monitoring host
-my $testLen   = $opts{'l'} || 86400;            # total duration of test in seconds
+my $testLen   = $opts{'l'} || 0;                # total duration of test in seconds
 my $xlsxName  = $opts{'o'} || '/dev/null';      # xlsx output file name
 my $jsonName  = $opts{'j'} || '/dev/null';      # json output file name
 my $snmpVer   = $opts{'s'} || 'v2c';            # snmp version
@@ -63,6 +58,11 @@ my %snmpOpts = ( 'host' => $host,
                  'comm' => $comm,
                  'ver'  => $snmpVer,
                );
+
+if ($testLen == 0) {
+  if ($host =~ 'localhost') { $testLen = 86400; }
+  else                      { $testLen = 130;   }
+}
 
 # The signal handler will throw an error if the output files ($XLSXOUT and $JSONOUT)
 # aren't defined. Cosmetic, but irritating.
@@ -166,6 +166,8 @@ else {
 
 
 # print out some information about the DUT being polled
+print "Host:        $host\n";
+print "Test Length: $testLen\n";
 print "Platform:    $result->{$staticOids{platform}}\n";
 print "Memory:      $result->{$staticOids{totalMemory}} (".$result->{$staticOids{totalMemory}} / MB." MB)\n";
 print "# of CPUs:   $result->{$staticOids{cpuCount}}\n";
