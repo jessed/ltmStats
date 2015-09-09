@@ -207,8 +207,8 @@ $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
 
 if ($json) {
   %json_buffer = ( 'metadata' => $test_meta,
-                   'perfdata' => {},
-                    );
+                   'perfdata' => [],
+                 );
 };
 
 ##
@@ -398,11 +398,8 @@ write;
       if ($json) {
         # Save data in json_buffer in case that output has been requested
         # Make sure we 'numify' the data-points before writing them out
-        $json_buffer{perfdata}{$runTime} = {};
-        foreach my $k (keys %$cur) {
-          $cur->{$k} += 0; 
-          $json_buffer{perfdata}{$runTime}{$k} = $cur->{$k};
-        }
+        foreach my $k (keys %$out) { $out->{$k} += 0; }
+        push(@{$json_buffer{perfdata}}, $out);
       }
     }
 
