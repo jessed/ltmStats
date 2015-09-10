@@ -208,6 +208,7 @@ $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
 if ($json) {
   %json_buffer = ( 'metadata' => $test_meta,
                    'perfdata' => [],
+                   'names'    => [],
                  );
 };
 
@@ -400,6 +401,11 @@ write;
         # Make sure we 'numify' the data-points before writing them out
         foreach my $k (keys %$out) { $out->{$k} += 0; }
         push(@{$json_buffer{perfdata}}, $out);
+
+        # Gather the stat names included
+        if (@{$json_buffer{names}} == 0) {
+          foreach my $n (keys %$out) { push(@{$json_buffer{names}}, $n); }
+        }
       }
     }
 
