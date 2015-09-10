@@ -205,6 +205,7 @@ $test_meta->{memory}        = $result->{$staticOids{totalMemory}};
 $test_meta->{ltm_version}   = $result->{$staticOids{ltmVersion}};
 $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
 $test_meta->{interval}      = $cycleTime * 1000;  # interval in ms
+$test_meta->{poll_count}    = 0;
 $test_meta->{start_time}    = sprintf("%.3f", Time::HiRes::time);
 $test_meta->{start_time_ms} = $test_meta->{start_time} * 1000;
 
@@ -410,6 +411,7 @@ write;
         # Make sure we 'numify' the data-points before writing them out
         foreach my $k (keys %$out) { $out->{$k} += 0; }
         push(@{$json_buffer{perfdata}}, $out);
+        $test_meta->{poll_count} = $row;
 
         # Gather the stat names included
         if (@{$json_buffer{names}} == 0) {
