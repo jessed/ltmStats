@@ -204,9 +204,18 @@ $test_meta->{blade_count}   = $result->{$staticOids{bladeCount}};
 $test_meta->{memory}        = $result->{$staticOids{totalMemory}};
 $test_meta->{ltm_version}   = $result->{$staticOids{ltmVersion}};
 $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
+$test_meta->{interval}      = $cycleTime * 1000;  # interval in ms
+$test_meta->{start_time}    = sprintf("%.3f", Time::HiRes::time);
+$test_meta->{start_time_ms} = $test_meta->{start_time} * 1000;
+
+# coerce a few of these values into numbers, important for javascript output
+$test_meta->{start_time}    += 0;
+$test_meta->{cpu_count}     += 0;
+$test_meta->{blade_count}   += 0;
+$test_meta->{interval}      += 0;
 
 if ($json) {
-  %json_buffer = ( 'metadata' => $test_meta,
+  %json_buffer = ( 'metadata' => {},
                    'perfdata' => [],
                    'names'    => [],
                  );
@@ -434,7 +443,7 @@ write;
 if ($json) {
   if ($JSONOUT) {
     print "Writing JSON output file: $jsonName\n";
-    &write_json($jsonName, \%json_buffer);
+    &write_json($jsonName, \%json_buffer, $test_meta);
   }
 }
 
@@ -929,6 +938,13 @@ sub close_xls() {
 sub write_json() {
   my $json_file = shift;
   my $json_data = shift;
+  my $meta_data = shift;
+
+  $meta_data->{end_time}    = sprintf("%.3f", Time::HiRes::time);
+  $meta_data->{end_time}    += 0;
+  $meta_data->{end_time_ms} = $test_meta->{end_time} * 1000;
+
+  $json_data->{metadata} = $test_meta;
   open(JSONOUT, ">", $json_file) or die "Could not open $json_file for writing.\n";
   print JSONOUT encode_json($json_data);
   close(JSONOUT);
@@ -939,7 +955,7 @@ sub exit_now() {
   print "\nStatistics collection cancelled. Attempting to save data.\n";
   if ($JSONOUT && $row > 0) {
     print "Writing JSON: $jsonName\n";
-    &write_json($jsonName, \%json_buffer);
+    &write_json($jsonName, \%json_buffer, $test_meta);
   }
   if ($XLSXOUT && $row > 0) {
     print "Writing XLSX: $xlsxName\n";
