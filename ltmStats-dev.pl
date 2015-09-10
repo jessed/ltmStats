@@ -204,13 +204,10 @@ $test_meta->{blade_count}   = $result->{$staticOids{bladeCount}};
 $test_meta->{memory}        = $result->{$staticOids{totalMemory}};
 $test_meta->{ltm_version}   = $result->{$staticOids{ltmVersion}};
 $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
-$test_meta->{interval}      = $cycleTime * 1000;  # interval in ms
+$test_meta->{interval}      = $cycleTime; # poll interval 
 $test_meta->{poll_count}    = 0;
-$test_meta->{start_time}    = sprintf("%.3f", Time::HiRes::time);
-$test_meta->{start_time_ms} = $test_meta->{start_time} * 1000;
 
 # coerce a few of these values into numbers, important for javascript output
-$test_meta->{start_time}    += 0;
 $test_meta->{cpu_count}     += 0;
 $test_meta->{blade_count}   += 0;
 $test_meta->{interval}      += 0;
@@ -253,6 +250,11 @@ if ($pause) {
 }
 
 # start active polling
+# Update test metadata with polling start time
+$test_meta->{start_time}    = sprintf("%d", Time::HiRes::time);
+$test_meta->{start_time}    += 0;
+
+# Update pollTimer with test start time
 $pollTimer{testStart} = [gettimeofday];
 
 do {
@@ -942,9 +944,8 @@ sub write_json() {
   my $json_data = shift;
   my $meta_data = shift;
 
-  $meta_data->{end_time}    = sprintf("%.3f", Time::HiRes::time);
-  $meta_data->{end_time}    += 0;
-  $meta_data->{end_time_ms} = $test_meta->{end_time} * 1000;
+  $meta_data->{end_time}      = sprintf("%d", Time::HiRes::time);
+  $meta_data->{end_time}      += 0;
 
   $json_data->{metadata} = $test_meta;
   open(JSONOUT, ">", $json_file) or die "Could not open $json_file for writing.\n";
