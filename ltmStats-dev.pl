@@ -19,14 +19,11 @@ use Time::HiRes   qw(tv_interval gettimeofday ualarm usleep time);
 use Data::Dumper;
 use Clone         qw/clone/;       
 use List::Util    qw/sum/;
+# Use these packages if present, otherwise disable the functionality they provide
 my $TRK              = eval { require Term::ReadKey; Term::ReadKey->import(); 1; };
 my $NetSNMP          = eval { require Net::SNMP; Net::SNMP->import(); 1; };
 my $ExcelWriterXLSX  = eval { require Excel::Writer::XLSX; Excel::Writer::XLSX->import(); 1; };
 my $json             = eval { require JSON; JSON->import(); 1; };
-#use JSON;
-#use Term::ReadKey;
-#use Net::SNMP     qw(:snmp);
-#use Excel::Writer::XLSX;
 
 $!++;  # No buffer for STDOUT
 $SIG{'INT'} = \&exit_now;  # handle ^C nicely
@@ -108,7 +105,7 @@ my $usCycleTime  = $cycleTime * 1_000_000;
 my (@dataList, @errorList, @staticList, @rowData, @winSize, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
-my ($memUsed, $hMem, $dataVals, $errorVals, $col );
+my ($totalMemMB, $memUsed, $hMem, $dataVals, $errorVals, $col);
 my ($workbook, $raw_data, $chtdata, $charts);
 my ($cBytesIn, $cBytesOut, $sBytesIn, $sBytesOut, $tBytesIn, $tBytesOut);
 my ($cPktsIn, $cPktsOut, $sPktsIn, $sPktsOut);
@@ -130,7 +127,7 @@ my %staticOids  = &get_static_oids();
 my %dataOids    = &get_f5_oids();
 my %errorOids   = &get_err_oids();
 
-my @dutInfoHdrs = qw(Host Platform Version Build Memory CPUs Blades);
+my @dutInfoHdrs = ('Host', 'Platform', 'Version', 'Build', 'Memory (MB)', 'CPUs', 'Blades');
 my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client Mbs In', 
                    'Client Mbs Out', 'Server Mbs In', 'Server Mbs Out','Client CurConns',
                    'Server CurConns', 'Client Conns/Sec', 'Server Conns/Sec',
@@ -169,7 +166,8 @@ else {
 print "Host:        $host\n";
 print "Test Length: $testLen\n";
 print "Platform:    $result->{$staticOids{platform}}\n";
-print "Memory:      $result->{$staticOids{totalMemory}} (".$result->{$staticOids{totalMemory}} / MB." MB)\n";
+                    $totalMemMB = $result->{$staticOids{totalMemory}} / MB;
+print "Memory:      $result->{$staticOids{totalMemory}} (".$totalMemMB." MB)\n";
 print "# of CPUs:   $result->{$staticOids{cpuCount}}\n";
 print "# of blades: $result->{$staticOids{bladeCount}}\n";
 print "LTM Version: $result->{$staticOids{ltmVersion}}\n";
@@ -191,7 +189,8 @@ if ($ExcelWriterXLSX) {
     $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
     $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
     $charts->write("D2", $result->{$staticOids{ltmBuild}},    $formats{text});
-    $charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{decimal0});
+    #$charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{decimal0});
+    $charts->write("E2", $totalMemMB,                         $formats{text});
     $charts->write("F2", $result->{$staticOids{cpuCount}},    $formats{text});
     $charts->write("G2", $result->{$staticOids{bladeCount}},  $formats{text});
   }
@@ -201,7 +200,8 @@ $test_meta->{host_name}     = $result->{$staticOids{hostName}};
 $test_meta->{platform}      = $result->{$staticOids{platform}};
 $test_meta->{cpu_count}     = $result->{$staticOids{cpuCount}};
 $test_meta->{blade_count}   = $result->{$staticOids{bladeCount}};
-$test_meta->{memory}        = $result->{$staticOids{totalMemory}};
+$test_meta->{totalMem}      = $result->{$staticOids{totalMemory}};
+$test_meta->{totalMemMB}    = $totalMemMB;
 $test_meta->{ltm_version}   = $result->{$staticOids{ltmVersion}};
 $test_meta->{ltm_build}     = $result->{$staticOids{ltmBuild}};
 $test_meta->{interval}      = $cycleTime; # poll interval 
@@ -209,6 +209,8 @@ $test_meta->{poll_count}    = 0;
 
 # coerce a few of these values into numbers, important for javascript output
 $test_meta->{cpu_count}     += 0;
+$test_meta->{totalMem}      += 0;
+$test_meta->{totalMemMB}    += 0;
 $test_meta->{blade_count}   += 0;
 $test_meta->{interval}      += 0;
 
@@ -358,13 +360,12 @@ do {
       &print_cli($out);  
     }
     else {
-# Print updates to the screen during the test
 format STDOUT_TOP =
-@>>>>  @>>>>   @>>>>  @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
-"Time", "CPU", "TMM", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
+@>>>>>> @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+"Time", "sysCPU", "tmmCPU", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
 .
 format =
-@>>>>  @>>>>   @>>>>  @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+@###.## @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
 @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns cCurConns sCurConns cBitsIn cBitsOut/}
 .
 write;
@@ -438,7 +439,7 @@ write;
 
   $pollTimer{lastLoopEnd} = [gettimeofday];
   while (Time::HiRes::time() < $wakeTime) {
-    Time::HiRes::usleep(5);
+    Time::HiRes::usleep(100);
   }
   $iterations++;
 } while ($runTime < $testLen);
@@ -455,7 +456,7 @@ if ($ExcelWriterXLSX) {
   if ($XLSXOUT) {
     print "Writing XLSX output file: $xlsxName\n";
     &write_chartData($chtdata, \%formats, $row);
-    &mk_charts($workbook, $charts, $row);
+    &mk_charts($workbook, $charts, $row, $test_meta->{totalMemMB});
 
     # close the workbook; required for the workbook to be usable.
     &close_xls($workbook);
@@ -786,6 +787,7 @@ sub mk_charts() {
   my $fname     = shift;
   my $worksheet = shift;
   my $numRows   = shift;
+  my $memoryMB  = shift;
 
   if ($DEBUG > 1) { print "Writing 'charts' worksheet.\n"; }
 
@@ -888,7 +890,7 @@ sub mk_charts() {
   my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
   $chtMem->set_title ( name => 'Memory Utilization', name_font => { size => 12, bold => 0} );
   $chtMem->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
-  $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0);
+  $chtMem->set_y_axis( name => 'Memory Usage (MB)', min => 0, max => $memoryMB);
   $chtMem->set_legend( position => 'none' );
   $chtMem->add_series(
     name        => '=chart_data!$D$1',
@@ -963,7 +965,7 @@ sub exit_now() {
   if ($XLSXOUT && $row > 0) {
     print "Writing XLSX: $xlsxName\n";
     &write_chartData($chtdata, \%formats, $row);
-    &mk_charts($workbook, $charts, $row) if $row > 0;
+    &mk_charts($workbook, $charts, $row, $test_meta->{totalMemMB}) if $row > 0;
     $workbook->close();
   }
   if (($XLSXOUT || $JSONOUT) && ($row < 1)) {
@@ -989,19 +991,19 @@ sub print_cli() {
   if ($VERBOSE == 1 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
+      printf("%6s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
     }
-      printf("%7.2f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
+      printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
   }
   elsif ($VERBOSE == 0 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
+      printf("%6s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
           "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
     }
-    printf("%7.2f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
+    printf("%7.1f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
         @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
   }
 # The following section will print comma-formatted counters. It is functional, but should incorporate
