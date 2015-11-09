@@ -992,10 +992,12 @@ sub print_cli() {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
       printf("%6s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
-          "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+          #"RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs", "cPPS In", "cPPS Out");
+          "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "cIn/Mbs", "cOut/Mbs", "sIn/Mbs", "sOut/Mbs");
     }
       printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
-          @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+          #@$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
+          @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut sBitsIn sBitsOut/})
   }
   elsif ($VERBOSE == 0 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
