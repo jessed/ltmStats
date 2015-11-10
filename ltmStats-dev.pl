@@ -227,23 +227,23 @@ if ($json) {
 
 # loop until start-of-test is detected
 if (!$BYPASS) {
-  if ($NetSNMP) {
-    if ($opts{'m'}) {
-      my ($watchhost, $error) = Net::SNMP->session(
-        -hostname     => $secondary,
-        -community    => $comm,
-        -version      => $snmpVer,
-        -maxmsgsize   => 8192,
-        -nonblocking  => 0,
-      );
-      die($error."\n") if ($error);
-      &detect_test_netsnmp($watchhost, \%dataOids) unless $BYPASS;
-    }
-    &detect_test_netsnmp($session, \%dataOids) unless $BYPASS;
+  if ($NetSNMP && $opts{'m'}) {
+    my ($watchhost, $error) = Net::SNMP->session(
+      -hostname     => $secondary,
+      -community    => $comm,
+      -version      => $snmpVer,
+      -maxmsgsize   => 8192,
+      -nonblocking  => 0,
+    );
+    die($error."\n") if ($error);
+    &detect_test_netsnmp($watchhost, \%dataOids);
   }
-  else {
-    &detect_test_snmpget(\%dataOids, \%snmpOpts) unless $BYPASS;
+  elsif ($NetSNMP) {
+    &detect_test_netsnmp($session, \%dataOids);
   }
+}
+else {
+  &detect_test_snmpget(\%dataOids, \%snmpOpts);
 }
 
 if ($pause) {
