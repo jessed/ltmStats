@@ -241,9 +241,9 @@ if (!$BYPASS) {
   elsif ($NetSNMP) {
     &detect_test_netsnmp($session, \%dataOids);
   }
-}
-else {
-  &detect_test_snmpget(\%dataOids, \%snmpOpts);
+  else {
+    &detect_test_snmpget(\%dataOids, \%snmpOpts);
+  } 
 }
 
 if ($pause) {
