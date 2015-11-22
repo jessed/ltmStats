@@ -855,6 +855,20 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
+  $chtTput->add_series(
+    name        => '=chart_data!$G$1',
+    values      => '=chart_data!$G$2:$G$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'yellow' },
+    marker      => { type  => 'none' },
+  );
+  $chtTput->add_series(
+    name        => '=chart_data!$H$1',
+    values      => '=chart_data!$H$2:$H$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'green' },
+    marker      => { type  => 'none' },
+  );
   $worksheet->insert_chart( 'A19', $chtTput, 10, 0);
 
   ## Transaction Rate
