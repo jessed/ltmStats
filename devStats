@@ -1092,3 +1092,6 @@ END
 
   exit($code);
 }
+
+
+# ex: syntax=perl
