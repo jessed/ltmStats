@@ -837,7 +837,7 @@ sub mk_charts() {
 
   ## Throughput chart
   my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 12, bold => 0} );
+  $chtTput->set_title ( name => 'Throughput', name_font => { size => 12, bold => 0} );
   $chtTput->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
   $chtTput->set_legend( position => 'bottom' );
@@ -933,13 +933,6 @@ sub mk_charts() {
     values      => '=chart_data!$J$2:$J$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
     line        => { color => 'red' },
-    marker      => { type  => 'none' },
-  );
-  $chtCC->add_series(
-    name        => '=chart_data!$N$1',
-    values      => '=chart_data!$N$2:$N$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'green' },
     marker      => { type  => 'none' },
   );
   $worksheet->insert_chart( 'E34', $chtCC, 50, 0);
