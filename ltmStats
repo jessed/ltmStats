@@ -859,7 +859,7 @@ sub mk_charts() {
     name        => '=chart_data!$G$1',
     values      => '=chart_data!$G$2:$G$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'yellow' },
+    line        => { color => 'orange' },
     marker      => { type  => 'none' },
   );
   $chtTput->add_series(
