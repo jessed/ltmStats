@@ -297,7 +297,7 @@ do {
   }
 
   # CPU and TMM time used
-  $cur->{cpuTotalTicks}   = sum(@$xlsData{qw/ssCpuRawUser ssCpuRawNice ssCpuRawSystem ssCpuRawIdle/});
+  $cur->{cpuTotalTicks}   = sum(@$xlsData{qw/ssCpuRawUser ssCpuRawNice ssCpuRawSystem ssCpuRawIdle ssCpuRawWait ssCpuRawKernel ssCpuRawInterrupt ssCpuRawSoftIRQ/});
   $cur->{cpuIdleTicks}    = $xlsData->{ssCpuRawIdle};
   $cur->{tmmTotal}        = $xlsData->{tmmTotalCycles};
   $cur->{tmmIdle}         = sum(@$xlsData{qw/tmmIdleCycles tmmSleepCycles/});
@@ -307,22 +307,22 @@ do {
   $cur->{clientTotConns}  = $xlsData->{tmmClientTotConns};
   $cur->{serverTotConns}  = $xlsData->{tmmServerTotConns};
   $cur->{totHttpReq}      = $xlsData->{sysStatHttpRequests};
-  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};     # Client PVA bytes in
-  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};    # Client PVA bytes out
-  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};     # Client TMM bytes in
-  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};    # Client TMM bytes out
-  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};     # Server PVA bytes in
-  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};    # Server PVA bytes out
-  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};     # Server TMM bytes in
-  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};    # Server TMM bytes out
-  $cur->{cTmmPktsIn}      = $xlsData->{tmmClientPktsIn};      # Client TMM packets in
-  $cur->{cTmmPktsOut}     = $xlsData->{tmmClientPktsOut};     # Client TMM packets Out
-  $cur->{sTmmPktsIn}      = $xlsData->{tmmServerPktsIn};      # Server TMM packets in
-  $cur->{sTmmPktsOut}     = $xlsData->{tmmServerPktsOut};     # Server TMM packets Out
-  $cur->{cPvaPktsIn}      = $xlsData->{pvaClientPktsIn};      # Client PVA packets in
-  $cur->{cPvaPktsOut}     = $xlsData->{pvaClientPktsOut};     # Client PVA packets Out
-  $cur->{sPvaPktsIn}      = $xlsData->{pvaServerPktsIn};      # Server PVA packets in
-  $cur->{sPvaPktsOut}     = $xlsData->{pvaServerPktsOut};     # Server PVA packets Out
+  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};                 # Client PVA bytes in
+  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};                # Client PVA bytes out
+  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};                 # Client TMM bytes in
+  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};                # Client TMM bytes out
+  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};                 # Server PVA bytes in
+  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};                # Server PVA bytes out
+  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};                 # Server TMM bytes in
+  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};                # Server TMM bytes out
+  $cur->{cTmmPktsIn}      = $xlsData->{tmmClientPktsIn};                  # Client TMM packets in
+  $cur->{cTmmPktsOut}     = $xlsData->{tmmClientPktsOut};                 # Client TMM packets Out
+  $cur->{sTmmPktsIn}      = $xlsData->{tmmServerPktsIn};                  # Server TMM packets in
+  $cur->{sTmmPktsOut}     = $xlsData->{tmmServerPktsOut};                 # Server TMM packets Out
+  $cur->{cPvaPktsIn}      = $xlsData->{pvaClientPktsIn};                  # Client PVA packets in
+  $cur->{cPvaPktsOut}     = $xlsData->{pvaClientPktsOut};                 # Client PVA packets Out
+  $cur->{sPvaPktsIn}      = $xlsData->{pvaServerPktsIn};                  # Server PVA packets in
+  $cur->{sPvaPktsOut}     = $xlsData->{pvaServerPktsOut};                 # Server PVA packets Out
   $cur->{cBytesIn}        = $cur->{cTmmBytesIn}  + $cur->{cPvaBytesIn};   # Client total bytes in
   $cur->{cBytesOut}       = $cur->{cTmmBytesOut} + $cur->{cPvaBytesOut};  # Client total bytes out
   $cur->{sBytesIn}        = $cur->{sTmmBytesIn}  + $cur->{sPvaBytesIn};   # Server total bytes in
@@ -365,7 +365,7 @@ format STDOUT_TOP =
 "Time", "sysCPU", "tmmCPU", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
 .
 format =
-@###.## @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+@#####.# @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
 @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns cCurConns sCurConns cBitsIn cBitsOut/}
 .
 write;
@@ -660,6 +660,10 @@ sub get_f5_oids() {
       'ssCpuRawNice'            => '.1.3.6.1.4.1.2021.11.51.0',
       'ssCpuRawSystem'          => '.1.3.6.1.4.1.2021.11.52.0',
       'ssCpuRawIdle'            => '.1.3.6.1.4.1.2021.11.53.0',
+      'ssCpuRawWait'            => '.1.3.6.1.4.1.2021.11.54.0',
+      'ssCpuRawKernel'          => '.1.3.6.1.4.1.2021.11.55.0',
+      'ssCpuRawInterrupt'       => '.1.3.6.1.4.1.2021.11.56.0',
+      'ssCpuRawSoftIRQ'         => '.1.3.6.1.4.1.2021.11.61.0',
       'tmmTotalCycles'          => '.1.3.6.1.4.1.3375.2.1.1.2.1.41.0',
       'tmmIdleCycles'           => '.1.3.6.1.4.1.3375.2.1.1.2.1.42.0',
       'tmmSleepCycles'          => '.1.3.6.1.4.1.3375.2.1.1.2.1.43.0',
