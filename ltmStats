@@ -247,7 +247,7 @@ if (!$BYPASS) {
 }
 
 if ($pause) {
-  print "Pausing for ".$pause." seconds while for ramp-up\n";
+  print "Pausing for ".$pause." seconds for ramp-up to complete\n";
   sleep($pause);
 }
 
