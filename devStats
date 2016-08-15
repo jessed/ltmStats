@@ -267,7 +267,11 @@ do {
   # get snmp stats from DUT
   if ($NetSNMP) {
     $dataVals = $session->get_request( -varbindlist  => \@dataList);
-    die($session->error."\n") if (!defined($dataVals));
+    # die($session->error."\n") if (!defined($dataVals));
+    if (!defined($dataVals)) {
+        print "ERROR: No data from DUT. Terminating polling, attempting to write data...\n";
+        goto SKIP_POLLING; # I'm so sorry... perl doesn't support using "last" in a do-while block. -- Robby
+    }
   }
   else {
     $dataVals = &get_snmp_data(\%dataOids, \%snmpOpts);
@@ -452,6 +456,7 @@ write;
   $iterations++;
 } while ($runTime < $testLen);
 
+SKIP_POLLING: # called from within the main do-while loop
 # polling is now complete, time to write the output files (if requested)
 if ($json) {
   if ($JSONOUT) {
@@ -985,7 +990,7 @@ sub write_json() {
   close(JSONOUT);
 }
 
-# saves the data when exitting the program immediately (CTRL+c)
+# saves the data when exiting the program immediately (CTRL+c)
 sub exit_now() {
   print "\nStatistics collection cancelled. Attempting to save data.\n";
   if ($JSONOUT && $row > 0) {
