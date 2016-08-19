@@ -270,7 +270,7 @@ do {
     # die($session->error."\n") if (!defined($dataVals));
     if (!defined($dataVals)) {
         print "ERROR: No data from DUT. Terminating polling, attempting to write data...\n";
-        exit_now();
+        &exit_now();
     }
   }
   else {
