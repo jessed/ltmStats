@@ -4,8 +4,10 @@
 # Collects numerous statistics from a target BIP-IP while under test
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2009-2015
-# Written by: Jesse Driskill, Sr. ITC Systems Engineer
+# Copyright, F5 Networks, 2009-2016
+# Written by Jesse Driskill, F5 Networks
+# Contributors
+#   Robby Stahl, F5 Networks
 #####################################################
 
 ## Required libraries
