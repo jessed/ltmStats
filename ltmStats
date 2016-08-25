@@ -4,8 +4,10 @@
 # Collects numerous statistics from a target BIP-IP while under test
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2009-2015
-# Written by: Jesse Driskill, Sr. ITC Systems Engineer
+# Copyright, F5 Networks, 2009-2016
+# Written by Jesse Driskill, F5 Networks
+# Contributors
+#   Robby Stahl, F5 Networks
 #####################################################
 
 ## Required libraries
@@ -247,7 +249,7 @@ if (!$BYPASS) {
 }
 
 if ($pause) {
-  print "Pausing for ".$pause." seconds for ramp-up to complete\n";
+  print "Pausing for ".$pause." seconds while for ramp-up\n";
   sleep($pause);
 }
 
@@ -267,7 +269,11 @@ do {
   # get snmp stats from DUT
   if ($NetSNMP) {
     $dataVals = $session->get_request( -varbindlist  => \@dataList);
-    die($session->error."\n") if (!defined($dataVals));
+    # die($session->error."\n") if (!defined($dataVals));
+    if (!defined($dataVals)) {
+        print "ERROR: No data from DUT. Terminating polling, attempting to write data...\n";
+        &exit_now();
+    }
   }
   else {
     $dataVals = &get_snmp_data(\%dataOids, \%snmpOpts);
@@ -297,7 +303,7 @@ do {
   }
 
   # CPU and TMM time used
-  $cur->{cpuTotalTicks}   = sum(@$xlsData{qw/ssCpuRawUser ssCpuRawNice ssCpuRawSystem ssCpuRawIdle ssCpuRawWait ssCpuRawKernel ssCpuRawInterrupt ssCpuRawSoftIRQ/});
+  $cur->{cpuTotalTicks}   = sum(@$xlsData{qw/ssCpuRawUser ssCpuRawNice ssCpuRawSystem ssCpuRawIdle/});
   $cur->{cpuIdleTicks}    = $xlsData->{ssCpuRawIdle};
   $cur->{tmmTotal}        = $xlsData->{tmmTotalCycles};
   $cur->{tmmIdle}         = sum(@$xlsData{qw/tmmIdleCycles tmmSleepCycles/});
@@ -307,30 +313,38 @@ do {
   $cur->{clientTotConns}  = $xlsData->{tmmClientTotConns};
   $cur->{serverTotConns}  = $xlsData->{tmmServerTotConns};
   $cur->{totHttpReq}      = $xlsData->{sysStatHttpRequests};
-  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};                 # Client PVA bytes in
-  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};                # Client PVA bytes out
-  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};                 # Client TMM bytes in
-  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};                # Client TMM bytes out
-  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};                 # Server PVA bytes in
-  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};                # Server PVA bytes out
-  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};                 # Server TMM bytes in
-  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};                # Server TMM bytes out
-  $cur->{cTmmPktsIn}      = $xlsData->{tmmClientPktsIn};                  # Client TMM packets in
-  $cur->{cTmmPktsOut}     = $xlsData->{tmmClientPktsOut};                 # Client TMM packets Out
-  $cur->{sTmmPktsIn}      = $xlsData->{tmmServerPktsIn};                  # Server TMM packets in
-  $cur->{sTmmPktsOut}     = $xlsData->{tmmServerPktsOut};                 # Server TMM packets Out
-  $cur->{cPvaPktsIn}      = $xlsData->{pvaClientPktsIn};                  # Client PVA packets in
-  $cur->{cPvaPktsOut}     = $xlsData->{pvaClientPktsOut};                 # Client PVA packets Out
-  $cur->{sPvaPktsIn}      = $xlsData->{pvaServerPktsIn};                  # Server PVA packets in
-  $cur->{sPvaPktsOut}     = $xlsData->{pvaServerPktsOut};                 # Server PVA packets Out
-  $cur->{cBytesIn}        = $cur->{cTmmBytesIn}  + $cur->{cPvaBytesIn};   # Client total bytes in
-  $cur->{cBytesOut}       = $cur->{cTmmBytesOut} + $cur->{cPvaBytesOut};  # Client total bytes out
-  $cur->{sBytesIn}        = $cur->{sTmmBytesIn}  + $cur->{sPvaBytesIn};   # Server total bytes in
-  $cur->{sBytesOut}       = $cur->{sTmmBytesOut} + $cur->{sPvaBytesOut};  # Server total bytes out
-  $cur->{cPktsIn}         = $cur->{cTmmPktsIn}   + $cur->{cPvaPktsIn};    # Client total packets in
-  $cur->{cPktsOut}        = $cur->{cTmmPktsOut}  + $cur->{cPvaPktsOut};   # Client total packets out
-  $cur->{sPktsIn}         = $cur->{sTmmPktsIn}   + $cur->{sPvaPktsIn};    # Server total packets in
-  $cur->{sPktsOut}        = $cur->{sTmmPktsOut}  + $cur->{sPvaPktsOut};   # Server total packets out
+  $cur->{cPvaBytesIn}     = $xlsData->{pvaClientBytesIn};     # Client PVA bytes in
+  $cur->{cPvaBytesOut}    = $xlsData->{pvaClientBytesOut};    # Client PVA bytes out
+  $cur->{cTmmBytesIn}     = $xlsData->{tmmClientBytesIn};     # Client TMM bytes in
+  $cur->{cTmmBytesOut}    = $xlsData->{tmmClientBytesOut};    # Client TMM bytes out
+  $cur->{sPvaBytesIn}     = $xlsData->{pvaServerBytesIn};     # Server PVA bytes in
+  $cur->{sPvaBytesOut}    = $xlsData->{pvaServerBytesOut};    # Server PVA bytes out
+  $cur->{sTmmBytesIn}     = $xlsData->{tmmServerBytesIn};     # Server TMM bytes in
+  $cur->{sTmmBytesOut}    = $xlsData->{tmmServerBytesOut};    # Server TMM bytes out
+  $cur->{cTmmPktsIn}      = $xlsData->{tmmClientPktsIn};      # Client TMM packets in
+  $cur->{cTmmPktsOut}     = $xlsData->{tmmClientPktsOut};     # Client TMM packets Out
+  $cur->{sTmmPktsIn}      = $xlsData->{tmmServerPktsIn};      # Server TMM packets in
+  $cur->{sTmmPktsOut}     = $xlsData->{tmmServerPktsOut};     # Server TMM packets Out
+  $cur->{cPvaPktsIn}      = $xlsData->{pvaClientPktsIn};      # Client PVA packets in
+  $cur->{cPvaPktsOut}     = $xlsData->{pvaClientPktsOut};     # Client PVA packets Out
+  $cur->{sPvaPktsIn}      = $xlsData->{pvaServerPktsIn};      # Server PVA packets in
+  $cur->{sPvaPktsOut}     = $xlsData->{pvaServerPktsOut};     # Server PVA packets Out
+  $cur->{cBytesIn}        = $cur->{cTmmBytesIn};                          # Client total bytes in
+  $cur->{cBytesOut}       = $cur->{cTmmBytesOut};                         # Client total bytes out
+  $cur->{sBytesIn}        = $cur->{sTmmBytesIn};                          # Server total bytes in
+  $cur->{sBytesOut}       = $cur->{sTmmBytesOut};                         # Server total bytes out
+  $cur->{cPktsIn}         = $cur->{cTmmPktsIn};                           # Client total packets in
+  $cur->{cPktsOut}        = $cur->{cTmmPktsOut};                          # Client total packets out
+  $cur->{sPktsIn}         = $cur->{sTmmPktsIn};                           # Server total packets in
+  $cur->{sPktsOut}        = $cur->{sTmmPktsOut};                          # Server total packets out
+  #$cur->{cBytesIn}        = $cur->{cTmmBytesIn}  + $cur->{cPvaBytesIn};   # Client total bytes in
+  #$cur->{cBytesOut}       = $cur->{cTmmBytesOut} + $cur->{cPvaBytesOut};  # Client total bytes out
+  #$cur->{sBytesIn}        = $cur->{sTmmBytesIn}  + $cur->{sPvaBytesIn};   # Server total bytes in
+  #$cur->{sBytesOut}       = $cur->{sTmmBytesOut} + $cur->{sPvaBytesOut};  # Server total bytes out
+  #$cur->{cPktsIn}         = $cur->{cTmmPktsIn}   + $cur->{cPvaPktsIn};    # Client total packets in
+  #$cur->{cPktsOut}        = $cur->{cTmmPktsOut}  + $cur->{cPvaPktsOut};   # Client total packets out
+  #$cur->{sPktsIn}         = $cur->{sTmmPktsIn}   + $cur->{sPvaPktsIn};    # Server total packets in
+  #$cur->{sPktsOut}        = $cur->{sTmmPktsOut}  + $cur->{sPvaPktsOut};   # Server total packets out
   $cur->{cpuUtil}         = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
   $cur->{tmmUtil}         = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
   $cur->{runTime}         = $runTime;
@@ -365,7 +379,7 @@ format STDOUT_TOP =
 "Time", "sysCPU", "tmmCPU", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
 .
 format =
-@#####.# @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+@###.## @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
 @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns cCurConns sCurConns cBitsIn cBitsOut/}
 .
 write;
@@ -673,16 +687,16 @@ sub get_f5_oids() {
       'tmmClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.2.0',
       'tmmClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.4.0',
       'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.8.0',
-      #'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
       'tmmClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.9.0',
+      #'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
       #'tmmClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.8.0',
       'tmmServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.10.0',
       'tmmServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.12.0',
       'tmmServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.9.0',
       'tmmServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
       'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.15.0',
-      #'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
       'tmmServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.16.0',
+      #'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
       #'tmmServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
       'sysStatHttpRequests'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.56.0',
       'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.16.0',
@@ -845,7 +859,7 @@ sub mk_charts() {
 
   ## Throughput chart
   my $chtTput = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTput->set_title ( name => 'Throughput', name_font => { size => 12, bold => 0} );
+  $chtTput->set_title ( name => 'Client Throughput', name_font => { size => 12, bold => 0} );
   $chtTput->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtTput->set_y_axis( name => 'Throughput (Mbps)', min => 0);
   $chtTput->set_legend( position => 'bottom' );
@@ -867,7 +881,7 @@ sub mk_charts() {
     name        => '=chart_data!$G$1',
     values      => '=chart_data!$G$2:$G$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'orange' },
+    line        => { color => 'yellow' },
     marker      => { type  => 'none' },
   );
   $chtTput->add_series(
@@ -943,6 +957,13 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
+  $chtCC->add_series(
+    name        => '=chart_data!$N$1',
+    values      => '=chart_data!$N$2:$N$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'green' },
+    marker      => { type  => 'none' },
+  );
   $worksheet->insert_chart( 'E34', $chtCC, 50, 0);
 
   return(1);
@@ -970,7 +991,7 @@ sub write_json() {
   close(JSONOUT);
 }
 
-# saves the data when exitting the program immediately (CTRL+c)
+# saves the data when exiting the program immediately (CTRL+c)
 sub exit_now() {
   print "\nStatistics collection cancelled. Attempting to save data.\n";
   if ($JSONOUT && $row > 0) {
@@ -1006,17 +1027,11 @@ sub print_cli() {
   if ($VERBOSE == 1 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      #printf("%6s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s% 9s % 9s\n",
-          #"RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "cIn/Mbs", "cOut/Mbs", "cPPS In", "cPPS Out", "sPPS In", "sPPS Out");
       printf("%6s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "cIn/Mbs", "cOut/Mbs", "cPPS In", "cPPS Out");
-          #"RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "cIn/Mbs", "cOut/Mbs", "sIn/Mbs", "sOut/Mbs");
     }
-      #printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d% 9d% 9d\n",
-          #@$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut sPktsIn sPktsOut/})
       printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
-          #@$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut sBitsIn sBitsOut/})
   }
   elsif ($VERBOSE == 0 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
