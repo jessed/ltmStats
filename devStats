@@ -877,20 +877,22 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
-  $chtTput->add_series(
-    name        => '=chart_data!$G$1',
-    values      => '=chart_data!$G$2:$G$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'yellow' },
-    marker      => { type  => 'none' },
-  );
-  $chtTput->add_series(
-    name        => '=chart_data!$H$1',
-    values      => '=chart_data!$H$2:$H$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'green' },
-    marker      => { type  => 'none' },
-  );
+## Removing the server-side throughput data from the charts.
+## It's unhelpful and clutters the chart.
+#  $chtTput->add_series(
+#    name        => '=chart_data!$G$1',
+#    values      => '=chart_data!$G$2:$G$'.($numRows-1),
+#    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+#    line        => { color => 'yellow' },
+#    marker      => { type  => 'none' },
+#  );
+#  $chtTput->add_series(
+#    name        => '=chart_data!$H$1',
+#    values      => '=chart_data!$H$2:$H$'.($numRows-1),
+#    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+#    line        => { color => 'green' },
+#    marker      => { type  => 'none' },
+#  );
   $worksheet->insert_chart( 'A19', $chtTput, 10, 0);
 
   ## Transaction Rate
@@ -957,13 +959,14 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
-  $chtCC->add_series(
-    name        => '=chart_data!$N$1',
-    values      => '=chart_data!$N$2:$N$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'green' },
-    marker      => { type  => 'none' },
-  );
+## Removing the 'Total Concurrency' data - it's a useless metric
+#  $chtCC->add_series(
+#    name        => '=chart_data!$N$1',
+#    values      => '=chart_data!$N$2:$N$'.($numRows-1),
+#    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+#    line        => { color => 'green' },
+#    marker      => { type  => 'none' },
+#  );
   $worksheet->insert_chart( 'E34', $chtCC, 50, 0);
 
   return(1);
