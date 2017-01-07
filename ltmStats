@@ -165,15 +165,15 @@ else {
 
 
 # print out some information about the DUT being polled
-print "Host:        $host\n";
-print "Test Length: $testLen\n";
-print "Platform:    $result->{$staticOids{platform}}\n";
-                    $totalMemMB = $result->{$staticOids{totalMemory}} / MB;
-print "Memory:      $result->{$staticOids{totalMemory}} (".$totalMemMB." MB)\n";
-print "# of CPUs:   $result->{$staticOids{cpuCount}}\n";
-print "# of blades: $result->{$staticOids{bladeCount}}\n";
-print "LTM Version: $result->{$staticOids{ltmVersion}}\n";
-print "LTM Build:   $result->{$staticOids{ltmBuild}}\n";
+print "Host:          $host\n";
+print "Test Duration: $testLen\n";
+print "Platform:      $result->{$staticOids{platform}}\n";
+                      $totalMemMB = $result->{$staticOids{totalMemory}} / MB;
+print "Memory:        $result->{$staticOids{totalMemory}} (".$totalMemMB." MB)\n";
+print "# of TMMs:     $result->{$staticOids{cpuCount}}\n";
+print "# of blades:   $result->{$staticOids{bladeCount}}\n";
+print "LTM Version:   $result->{$staticOids{ltmVersion}} ($result->{$staticOids{ltmBuild}})\n";
+#print "LTM Build:     $result->{$staticOids{ltmBuild}}\n";
 print "\n";
 
 
