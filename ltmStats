@@ -4,7 +4,7 @@
 # Collects numerous statistics from a target BIP-IP while under test
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2009-2016
+# Copyright, F5 Networks, 2009-2017
 # Written by Jesse Driskill, F5 Networks
 # Contributors
 #   Robby Stahl, F5 Networks
@@ -21,6 +21,7 @@ use Time::HiRes   qw(tv_interval gettimeofday ualarm usleep time);
 use Data::Dumper;
 use Clone         qw/clone/;       
 use List::Util    qw/sum/;
+use POSIX         qw/strftime/;
 # Use these packages if present, otherwise disable the functionality they provide
 my $TRK              = eval { require Term::ReadKey; Term::ReadKey->import(); 1; };
 my $NetSNMP          = eval { require Net::SNMP; Net::SNMP->import(); 1; };
@@ -129,11 +130,14 @@ my %staticOids  = &get_static_oids();
 my %dataOids    = &get_f5_oids();
 my %errorOids   = &get_err_oids();
 
-my @dutInfoHdrs = ('Host', 'Platform', 'Version', 'Build', 'Memory (MB)', 'CPUs', 'Blades');
+my @dutInfoHdrs = ('Host', 'Platform', 'Version', 'Build', 'Memory (MB)', 'TMMs', 'Blades', 
+                   'Start Time', 'End Time',
+                  );
 my @chtDataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client Mbs In', 
                    'Client Mbs Out', 'Server Mbs In', 'Server Mbs Out','Client CurConns',
                    'Server CurConns', 'Client Conns/Sec', 'Server Conns/Sec',
                    'HTTP Requests/Sec', 'Total CurConns', 
+                   'Client PPS In', 'Client PPS Out', 'Server PPS In', 'Server PPS Out',
                   );
 my @rawdataHdrs = ('RunTime', 'SysCPU', 'TmmCPU', 'Memory', 'Client bytesIn', 'Client bytesOut', 
                    'Client pktsIn', 'Client pktsOut', 'Server btyesIn', 'Server bytesOut', 
@@ -191,7 +195,6 @@ if ($ExcelWriterXLSX) {
     $charts->write("B2", $result->{$staticOids{platform}},    $formats{text});
     $charts->write("C2", $result->{$staticOids{ltmVersion}},  $formats{text});
     $charts->write("D2", $result->{$staticOids{ltmBuild}},    $formats{text});
-    #$charts->write("E2", $result->{$staticOids{totalMemory}}, $formats{decimal0});
     $charts->write("E2", $totalMemMB,                         $formats{text});
     $charts->write("F2", $result->{$staticOids{cpuCount}},    $formats{text});
     $charts->write("G2", $result->{$staticOids{bladeCount}},  $formats{text});
@@ -255,8 +258,9 @@ if ($pause) {
 
 # start active polling
 # Update test metadata with polling start time
-$test_meta->{start_time}    = sprintf("%d", Time::HiRes::time);
-$test_meta->{start_time}    += 0;
+$test_meta->{start_time}        = sprintf("%d", Time::HiRes::time);
+$test_meta->{start_time}        += 0;
+$test_meta->{start_time_pretty} = strftime('%F %R', localtime($test_meta->{start_time}));
 
 # Update pollTimer with test start time
 $pollTimer{testStart} = [gettimeofday];
@@ -459,6 +463,12 @@ write;
 } while ($runTime < $testLen);
 
 # polling is now complete, time to write the output files (if requested)
+
+# Record end time
+$test_meta->{end_time}        = sprintf("%d", Time::HiRes::time);
+$test_meta->{end_time}        += 0;
+$test_meta->{end_time_pretty} = strftime('%F %R', localtime($test_meta->{end_time}));
+
 if ($json) {
   if ($JSONOUT) {
     print "Writing JSON output file: $jsonName\n";
@@ -471,6 +481,8 @@ if ($ExcelWriterXLSX) {
     print "Writing XLSX output file: $xlsxName\n";
     &write_chartData($chtdata, \%formats, $row);
     &mk_charts($workbook, $charts, $row, $test_meta->{totalMemMB});
+    $charts->write("H2", $test_meta->{start_time_pretty},  $formats{text});
+    $charts->write("I2", $test_meta->{end_time_pretty},  $formats{text});
 
     # close the workbook; required for the workbook to be usable.
     &close_xls($workbook);
@@ -650,13 +662,16 @@ sub write_chartData() {
       '=((((raw_data!'.$r{'cBytesOut'}.$row2.'-raw_data!'.$r{'cBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
       '=((((raw_data!'.$r{'sBytesIn'} .$row2.'-raw_data!'.$r{'sBytesIn'} .$row1.')/('.$cTime.'))*8)/1000000)',
       '=((((raw_data!'.$r{'sBytesOut'}.$row2.'-raw_data!'.$r{'sBytesOut'}.$row1.')/('.$cTime.'))*8)/1000000)',
-      '=raw_data!'   .$r{'cltCurConns'}.$row2,
-      '=raw_data!'   .$r{'svrCurConns'}.$row2,
-      '=((raw_data!' .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
-      '=((raw_data!' .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
-      '=raw_data!'   .$r{'cltCurConns'}.$row2.'+raw_data!'.$r{'svrCurConns'}.$row2,
-
+      '=raw_data!'    .$r{'cltCurConns'}.$row2,
+      '=raw_data!'    .$r{'svrCurConns'}.$row2,
+      '=((raw_data!'  .$r{'cltTotConns'}.$row2.'-raw_data!'.$r{'cltTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!'  .$r{'svrTotConns'}.$row2.'-raw_data!'.$r{'svrTotConns'}.$row1.')/('.$cTime.'))',
+      '=((raw_data!'  .$r{'httpRequests'}.$row2.'-raw_data!'.$r{'httpRequests'}.$row1.')/('.$cTime.'))',
+      '=raw_data!'    .$r{'cltCurConns'}.$row2.'+raw_data!'.$r{'svrCurConns'}.$row2,
+      '=(raw_data!'   .$r{'cPktsIn'}.$row2.'-raw_data!'.$r{'cPktsIn'}.$row1.')/('.$cTime.')',
+      '=(raw_data!'   .$r{'cPktsOut'}.$row2.'-raw_data!'.$r{'cPktsOut'}.$row1.')/('.$cTime.')',
+      '=(raw_data!'   .$r{'sPktsIn'}.$row2.'-raw_data!'.$r{'sPktsIn'}.$row1.')/('.$cTime.')',
+      '=(raw_data!'   .$r{'sPktsOut'}.$row2.'-raw_data!'.$r{'sPktsOut'}.$row1.')/('.$cTime.')',
     );
 
     if ($DEBUG > 1) { print Dumper(\@rowData); }
@@ -782,6 +797,7 @@ sub mk_perf_xls() {
   $charts->set_column('B:D', 10);
   $charts->set_column('E:E', 15);
   $charts->set_column('F:G', 10);
+  $charts->set_column('H:I', 14);
   $charts->activate();
 
   # create the worksheet that will contain the data used for the charts
@@ -789,7 +805,7 @@ sub mk_perf_xls() {
   $chtData->set_zoom(80);
   $chtData->set_column('A:C', 9);
   $chtData->set_column('D:G', 15);
-  $chtData->set_column('H:O', 18);
+  $chtData->set_column('H:R', 18);
 
   # contains the raw data retrieved with SNMP
   my $rawdata = $workbook->add_worksheet('raw_data');
@@ -841,18 +857,25 @@ sub mk_charts() {
   $chtCPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCPS->set_y_axis( name => 'Connections/Second', min => 0);
   $chtCPS->set_legend( position => 'bottom' );
-  $chtCPS->add_series(
+  $chtCPS->add_series(  # Client Connection rate
     name        => '=chart_data!$K$1',
     values      => '=chart_data!$K$2:$K$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
     line        => { color => 'blue' },
     marker      => { type  => 'none' },
   );
-  $chtCPS->add_series(
+  $chtCPS->add_series(  # Server Connection rate
     name        => '=chart_data!$L$1',
     values      => '=chart_data!$L$2:$L$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
     line        => { color => 'red' },
+    marker      => { type  => 'none' },
+  );
+  $chtCPS->add_series(  # HTTP Transaction rate
+    name        => '=chart_data!$M$1',
+    values      => '=chart_data!$M$2:$M$'.($numRows-1),
+    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+    line        => { color => 'green' },
     marker      => { type  => 'none' },
   );
   $worksheet->insert_chart( 'E4', $chtCPS, 50, 0);
@@ -895,34 +918,41 @@ sub mk_charts() {
 #  );
   $worksheet->insert_chart( 'A19', $chtTput, 10, 0);
 
-  ## Transaction Rate
-  my $chtTPS  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtTPS->set_title ( name => 'Transaction Rate', name_font => { size => 12, bold => 0} );
-  $chtTPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
-  $chtTPS->set_y_axis( name => 'Transactions/Second', min => 0);
-  $chtTPS->set_legend( position => 'bottom' );
-  $chtTPS->add_series(  # HTTP Transaction rate
-    name        => '=chart_data!$M$1',
-    values      => '=chart_data!$M$2:$M$'.($numRows-1),
-    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
-    line        => { color => 'green' },
-    marker      => { type  => 'none' },
-  );
-  $chtTPS->add_series(  # Client-side connection rate
-    name        => '=chart_data!$K$1',
-    values      => '=chart_data!$K$2:$K$'.($numRows-1),
+  ## Packet Rate
+  my $chtPPS  = $fname->add_chart( type => 'line', embedded => 1);
+  $chtPPS->set_title ( name => 'Packet Rate', name_font => { size => 12, bold => 0} );
+  $chtPPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
+  $chtPPS->set_y_axis( name => 'Packet Rate', min => 0);
+  $chtPPS->set_legend( position => 'bottom' );
+  $chtPPS->add_series(  # Client Pkts In
+    name        => '=chart_data!$O$1',
+    values      => '=chart_data!$O$2:$O$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
     line        => { color => 'blue' },
     marker      => { type  => 'none' },
   );
-  $chtTPS->add_series(  # Server-side connection rate
-    name        => '=chart_data!$L$1',
-    values      => '=chart_data!$L$2:$L$'.($numRows-1),
+  $chtPPS->add_series(  # Client Pkts Out
+    name        => '=chart_data!$P$1',
+    values      => '=chart_data!$P$2:$P$'.($numRows-1),
     categories  => '=chart_data!$A$2:$A$'.($numRows-1),
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
-  $worksheet->insert_chart( 'E19', $chtTPS, 50, 0);
+#  $chtPPS->add_series(  # Server Pkts In
+#    name        => '=chart_data!$Q$1',
+#    values      => '=chart_data!$Q$2:$Q$'.($numRows-1),
+#    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+#    line        => { color => 'green' },
+#    marker      => { type  => 'none' },
+#  );
+#  $chtPPS->add_series(  # Server Pkts Out
+#    name        => '=chart_data!$R$1',
+#    values      => '=chart_data!$R$2:$R$'.($numRows-1),
+#    categories  => '=chart_data!$A$2:$A$'.($numRows-1),
+#    line        => { color => 'purple' },
+#    marker      => { type  => 'none' },
+#  );
+  $worksheet->insert_chart( 'E19', $chtPPS, 50, 0);
 
   ## Memory usage chart
   my $chtMem  = $fname->add_chart( type => 'line', embedded => 1);
@@ -997,6 +1027,10 @@ sub write_json() {
 # saves the data when exiting the program immediately (CTRL+c)
 sub exit_now() {
   print "\nStatistics collection cancelled. Attempting to save data.\n";
+  $test_meta->{end_time}        = sprintf("%d", Time::HiRes::time);
+  $test_meta->{end_time}        += 0;
+  $test_meta->{end_time_pretty} = strftime('%F %R', localtime($test_meta->{end_time}));
+
   if ($JSONOUT && $row > 0) {
     print "Writing JSON: $jsonName\n";
     &write_json($jsonName, \%json_buffer, $test_meta);
@@ -1004,7 +1038,12 @@ sub exit_now() {
   if ($XLSXOUT && $row > 0) {
     print "Writing XLSX: $xlsxName\n";
     &write_chartData($chtdata, \%formats, $row);
-    &mk_charts($workbook, $charts, $row, $test_meta->{totalMemMB}) if $row > 0;
+
+    if ($row > 0) {
+      &mk_charts($workbook, $charts, $row, $test_meta->{totalMemMB});
+      $charts->write("H2", $test_meta->{start_time_pretty},  $formats{text});
+      $charts->write("I2", $test_meta->{end_time_pretty},  $formats{text});
+    }
     $workbook->close();
   }
   if (($XLSXOUT || $JSONOUT) && ($row < 1)) {
@@ -1045,27 +1084,35 @@ sub print_cli() {
     printf("%7.1f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
         @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
   }
-# The following section will print comma-formatted counters. It is functional, but should incorporate
-# a different output option. Maybe something like '-vv' or '--pretty', etc...
-# For now it will remain unimplemented.
+# Comma-formatted "pretty" output   '-P'
   if ($VERBOSE == 1 && $PRETTY == 1) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      #printf("%7s % 7s % 7s % 10s % 8s % 8s % 8s % 9s % 9s % 9s % 9s % 9s % 9s\n",
-      printf("% 7s % 7s % 7s % 10s % 9s % 9s % 9s % 10s % 10s % 10s % 10s % 10s % 10s\n",
-          "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
-          "cCPS", "sCPS", "HTTPReq",
+      printf("% 7s% 7s% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+          "RunTime", "tmmCPU", "Mem (MB)",
+          "cCPS", "sCPS", "HTTP",
           "cConns", "sConns",
           "In/Mbs", "Out/Mbs",
           "cPPS In", "cPPS Out");
+    #  printf("% 7s% 8s% 8s% 10s% 9s% 9s% 9s% 10s% 10s% 8s% 8s% 11s% 11s\n",
+    #      "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
+    #      "cCPS", "sCPS", "HTTPReq",
+    #      "cConns", "sConns",
+    #      "In/Mbs", "Out/Mbs",
+    #      "cPPS In", "cPPS Out");
     }
-    #printf("%7.2f %7.2f %7.2f %10s %8s %8s %8s %9s %9s %9s %9s %9s %9s\n",
-    printf("%7.2f %7.2f %7.2f % 10s % 9s % 9s % 9s % 10s % 10s % 10s % 10s % 10s % 10s\n",
-        $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
+    printf("%7.2f %6.2f% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+        $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
         &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
         &commify($out->{cCurConns}), &commify($out->{sCurConns}),
         &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
         &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
+    #printf("%7.2f %7.2f %7.2f% 10s% 9s% 9s% 9s% 10s% 10s% 8s% 8s% 11s% 11s\n",
+    #    $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
+    #    &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
+    #    &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+    #    &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
+    #    &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
   }
   elsif ($VERBOSE == 0 && $PRETTY == 1) {
     @winSize = &GetTerminalSize;
