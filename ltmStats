@@ -1088,46 +1088,37 @@ sub print_cli() {
   if ($VERBOSE == 1 && $PRETTY == 1) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("% 7s% 7s% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+      printf("% 7s% 8s% 8s% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+          "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
+          "cCPS", "sCPS", "HTTP",
+          "cConns", "sConns",
+          "In/Mbs", "Out/Mbs",
+          "cPPS In", "cPPS Out");
+    }
+    printf("%7.2f %7.2f% 8.2f% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+        $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
+        &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
+        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
+        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
+        &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
+  }
+# Pretty output, but not verbose (removes host CPU column)
+  elsif ($VERBOSE == 0 && $PRETTY == 1) {
+    @winSize = &GetTerminalSize;
+    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
+      printf("% 7s% 8s% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
           "RunTime", "tmmCPU", "Mem (MB)",
           "cCPS", "sCPS", "HTTP",
           "cConns", "sConns",
           "In/Mbs", "Out/Mbs",
           "cPPS In", "cPPS Out");
-    #  printf("% 7s% 8s% 8s% 10s% 9s% 9s% 9s% 10s% 10s% 8s% 8s% 11s% 11s\n",
-    #      "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
-    #      "cCPS", "sCPS", "HTTPReq",
-    #      "cConns", "sConns",
-    #      "In/Mbs", "Out/Mbs",
-    #      "cPPS In", "cPPS Out");
     }
-    printf("%7.2f %6.2f% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+    printf("%7.2f% 8.2f% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
         $out->{runTime}, $out->{tmmUtil}, &commify($out->{memUsed}),
         &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
         &commify($out->{cCurConns}), &commify($out->{sCurConns}),
         &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
         &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
-    #printf("%7.2f %7.2f %7.2f% 10s% 9s% 9s% 9s% 10s% 10s% 8s% 8s% 11s% 11s\n",
-    #    $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
-    #    &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
-    #    &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-    #    &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}),
-    #    &commify($out->{cPktsIn}),   &commify($out->{cPktsOut}));
-  }
-  elsif ($VERBOSE == 0 && $PRETTY == 1) {
-    @winSize = &GetTerminalSize;
-    if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%7s % 7s % 7s % 11s % 8s % 8s % 9s % 9s % 9s % 9s\n",
-          "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
-          "cCPS", "sCPS",
-          "cConns", "sConns",
-          "In/Mbs", "Out/Mbs");
-    }
-    printf("%7.2f % 7.2f % 7.2f % 11s % 8s % 8s % 9s % 9s % 9s % 9s\n",
-        $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
-        &commify($out->{cNewConns}), &commify($out->{sNewConns}),
-        &commify($out->{cCurConns}), &commify($out->{sCurConns}),
-        &commify($out->{cBitsIn}),   &commify($out->{cBitsOut}));
   }
 }
 
