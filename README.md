@@ -1,3 +1,5 @@
+LTM statistics collection via SNMP. Outputs data to CLI in realtime and to xlsx (if appropriate modules are present).
+
 Files
 
 devStats
