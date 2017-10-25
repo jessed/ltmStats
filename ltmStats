@@ -1131,6 +1131,8 @@ sub usage() {
           $0 -h
 
   -d      IP or hostname to query (REQUIRED)
+  -c      SNMP community string           (default: public)
+  -s      SNMP version                    (default: v2c)
   -m      IP or hostname to monitor for the start of the test. Use this to 
           monitor the active LTM in a failover pair, but record data from the 
           standby LTM.
