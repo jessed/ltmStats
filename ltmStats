@@ -499,7 +499,8 @@ sub delta           {
   if ($DEBUG > 3) {
     printf("($_[0]) Old: %.0f   Cur: %.0f   Diff: %.0f\n", $old->{$_[0]}, $cur->{$_[0]}, $cur->{$_[0]} - $old->{$_[0]});
   }
-  return (!exists $old->{$_[0]} ? 0 : $cur->{$_[0]} - $old->{$_[0]}); }
+  return (!exists $old->{$_[0]} ? 0 : $cur->{$_[0]} - $old->{$_[0]}); 
+}
 sub bytes_to_Mbits  { return sprintf("%.0f", ($_[0] * 8) / 1_000_000) };
 sub bytes_to_MB     { return sprintf("%d", $_[0] / (1024 * 1024)) };
 sub cpu_util        { return ($_[0] == 0) ? 0 : (($_[0] - $_[1]) / $_[0]) * 100 };
@@ -853,7 +854,7 @@ sub mk_charts() {
 
   ## Connection Rate
   my $chtCPS  = $fname->add_chart( type => 'line', embedded => 1);
-  $chtCPS->set_title ( name => 'Connection Rate', name_font => { size => 12, bold => 0} );
+  $chtCPS->set_title ( name => 'Connection/Transaction Rate', name_font => { size => 12, bold => 0} );
   $chtCPS->set_x_axis( name => 'Time (Seconds)', num_font => { rotation => 45 } );
   $chtCPS->set_y_axis( name => 'Connections/Second', min => 0);
   $chtCPS->set_legend( position => 'bottom' );
