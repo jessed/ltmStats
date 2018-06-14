@@ -35,7 +35,7 @@ $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 #
 our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PRETTY, $CUSTOMER);
 our ($TESTNAME, $COMMENTS, $WAIT);
-getopts('d:m:l:o:j:C:T:m:c:s:i:P:p:D:PBvh', \%opts);
+getopts('d:m:l:o:j:C:T:m:c:s:i:w:p:D:PBvh', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
