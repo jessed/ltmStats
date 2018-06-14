@@ -34,13 +34,14 @@ $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 ## retrieve and process CLI paramters
 #
 our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PRETTY, $CUSTOMER);
-our ($TESTNAME, $COMMENTS, $PAUSE);
-getopts('d:m:l:o:j:C:T:m:c:s:i:p:D:PBvh', \%opts);
+our ($TESTNAME, $COMMENTS, $WAIT);
+getopts('d:m:l:o:j:C:T:m:c:s:i:P:p:D:PBvh', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
 
 my $host      = $opts{'d'} || 'localhost';      # snmp host to poll
+my $port      = $opts{'p'} || 161;              # snmp port to poll
 my $secondary = $opts{'m'};                     # monitoring host
 my $testLen   = $opts{'l'} || 0;                # total duration of test in seconds
 my $xlsxName  = $opts{'o'} || '/dev/null';      # xlsx output file name
@@ -48,13 +49,14 @@ my $jsonName  = $opts{'j'} || '/dev/null';      # json output file name
 my $snmpVer   = $opts{'s'} || 'v2c';            # snmp version
 my $comm      = $opts{'c'} || 'public';         # community string    
 my $cycleTime = $opts{'i'} || 10;               # polling interval
-my $pause     = $opts{'p'} || 0;                # pause time
+my $wait      = $opts{'w'} || 0;                # wait time
 my $customer  = $opts{'C'} || 'not provided';   # Customer name
 my $testname  = $opts{'T'} || 'not provided';   # Test name
 my $comments  = $opts{'m'} || 'not provided';   # Test comments/description
 $DEBUG        = $opts{'D'} || 0;                # Debug level
 
 my %snmpOpts = ( 'host' => $host,
+                 'port' => $port,
                  'comm' => $comm,
                  'ver'  => $snmpVer,
                );
@@ -155,6 +157,7 @@ while (my ($key, $value) = each(%errorOids))  { push(@errorList, $value); }
 if ($NetSNMP) {
   ($session, $error) = Net::SNMP->session(
     -hostname     => $host,
+    -port         => $port,
     -community    => $comm,
     -version      => $snmpVer,
     -maxmsgsize   => 8192,
@@ -251,9 +254,9 @@ if (!$BYPASS) {
   } 
 }
 
-if ($pause) {
-  print "Pausing for ".$pause." seconds while for ramp-up\n";
-  sleep($pause);
+if ($wait) {
+  print "Pausing for ".$wait." seconds while for ramp-up\n";
+  sleep($wait);
 }
 
 # start active polling
@@ -1070,33 +1073,33 @@ sub print_cli() {
   if ($VERBOSE == 1 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%6s% 7s% 7s% 10s% 8s% 8s% 8s% 9s% 9s% 9s% 9s% 9s% 9s\n",
+      printf("%6s% 7s% 7s% 10s% 8s% 8s% 10s% 9s% 9s% 9s% 9s% 9s% 9s\n",
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "cIn/Mbs", "cOut/Mbs", "cPPS In", "cPPS Out");
     }
-      printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 9d% 9d% 9d% 9d% 9d% 9d\n",
+      printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 10d% 9d% 9d% 9d% 9d% 9d\n",
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
   }
   elsif ($VERBOSE == 0 && $PRETTY == 0) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("%6s% 7s% 10s% 6s% 8s% 8s% 9s% 9s% 9s% 9s\n",
+      printf("%6s% 7s% 10s% 6s% 8s% 10s% 9s% 9s% 9s% 9s\n",
           "RunTime", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "In/Mbs", "Out/Mbs");
     }
-    printf("%7.1f% 7.2f% 8d% 8d% 8d% 8d% 9d% 9d% 9d% 9d\n",
+    printf("%7.1f% 7.2f% 8d% 8d% 8d% 10d% 9d% 9d% 9d% 9d\n",
         @$out{qw/runTime tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut/})
   }
 # Comma-formatted "pretty" output   '-P'
   if ($VERBOSE == 1 && $PRETTY == 1) {
     @winSize = &GetTerminalSize;
     if ($iterations == 1 || ($iterations%$winSize[1]) == 0 ) {
-      printf("% 7s% 8s% 8s% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+      printf("% 7s% 8s% 8s% 10s% 10s% 10s% 10s% 12s% 12s% 8s% 9s% 12s% 12s\n",
           "RunTime", "hostCPU", "tmmCPU", "Mem (MB)",
           "cCPS", "sCPS", "HTTP",
           "cConns", "sConns",
           "In/Mbs", "Out/Mbs",
           "cPPS In", "cPPS Out");
     }
-    printf("%7.2f %7.2f% 8.2f% 10s% 10s% 10s% 8s% 12s% 12s% 8s% 9s% 12s% 12s\n",
+    printf("%7.2f %7.2f% 8.2f% 10s% 10s% 10s% 10s% 12s% 12s% 8s% 9s% 12s% 12s\n",
         $out->{runTime}, $out->{cpuUtil}, $out->{tmmUtil}, &commify($out->{memUsed}),
         &commify($out->{cNewConns}), &commify($out->{sNewConns}), &commify($out->{httpReq}),
         &commify($out->{cCurConns}), &commify($out->{sCurConns}),
@@ -1132,21 +1135,23 @@ sub usage() {
           $0 -h
 
   -d      IP or hostname to query (REQUIRED)
+  -p      UDP port to connect use         (default: 161)
   -c      SNMP community string           (default: public)
   -s      SNMP version                    (default: v2c)
-  -m      IP or hostname to monitor for the start of the test. Use this to 
-          monitor the active LTM in a failover pair, but record data from the 
-          standby LTM.
   -l      Full Test duration              (default: 130 seconds)
   -i      Seconds between polling cycles  (default: 10 seconds)
   -o      XLSX output filename            (default: /dev/null)
   -j      JSON output filename            (default: /dev/null)
-  -p      Pause time; the amount of time to wait following the start of the 
+  -P      Wait time; the amount of time to wait following the start of the 
           test before beginning polling. Should match the ramp-up time (default: 0)
   -v      Verbose output (print verbose stats)
   -P      Pretty output  (Stats with digital grouping)
   -B      Bypass start-of-test detection and start polling immediately
-  -h      Print usage and exit
+  -h      Print this help text and exit
+
+  -m      IP or hostname to monitor for the start of the test. Use this to 
+          monitor the active LTM in a failover pair, but record data from the 
+          standby LTM.
 
 END
 
