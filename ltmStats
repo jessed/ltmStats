@@ -35,7 +35,7 @@ $SIG{'INT'} = \&exit_now;  # handle ^C nicely
 #
 our (%opts, $XLSXOUT, $JSONOUT, $BYPASS, $DEBUG, $VERBOSE, $PRETTY, $CUSTOMER);
 our ($TESTNAME, $COMMENTS, $WAIT);
-getopts('d:m:l:o:j:C:T:m:c:s:i:w:p:D:PBvh', \%opts);
+getopts('d:p:m:l:o:j:s:c:i:w:C:T:M:D:PBvh', \%opts);
 
 # print usage and exit
 &usage(0) if $opts{'h'};
@@ -52,7 +52,7 @@ my $cycleTime = $opts{'i'} || 10;               # polling interval
 my $wait      = $opts{'w'} || 0;                # wait time
 my $customer  = $opts{'C'} || 'not provided';   # Customer name
 my $testname  = $opts{'T'} || 'not provided';   # Test name
-my $comments  = $opts{'m'} || 'not provided';   # Test comments/description
+my $comments  = $opts{'M'} || 'not provided';   # Test comments/description
 $DEBUG        = $opts{'D'} || 0;                # Debug level
 
 my %snmpOpts = ( 'host' => $host,
