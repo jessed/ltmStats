@@ -1,9 +1,9 @@
 LTM statistics collection via SNMP. Outputs data to CLI in realtime and to xlsx (if appropriate modules are present).
 
 # Usage 
-./ltmStats -h
-  USAGE:  ./ltmStats -d <host> -l <total test length> -o <output file>
-          ./ltmStats -h
+./ltmStats -h   
+  USAGE:  ./ltmStats -d {host} -l {total test length} -o {output file}   
+          ./ltmStats -h   
 
   -d      IP or hostname to query (REQUIRED)   
   -p      UDP port to connect use         (default: 161)   
