@@ -2,9 +2,6 @@ LTM statistics collection via SNMP. Outputs data to CLI in realtime and to xlsx 
 
 Files
 
-devStats
-  Development version
-
 ltmStats
   Main/stable version
 
