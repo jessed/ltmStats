@@ -24,12 +24,12 @@ LTM statistics collection via SNMP. Outputs data to CLI in realtime and to xlsx 
           standby LTM.   
 
 
-#Files
+# Files
 
-##ltmStats
+## ltmStats
   Main/stable version
 
-##other/
+## other/
   summarize_tests.py  
   Scans the current directory for ltmStats output (*xlsx), reads all the files and 
   creates summarized output xlsx.
@@ -41,7 +41,7 @@ LTM statistics collection via SNMP. Outputs data to CLI in realtime and to xlsx 
   incorporate the latest options in ltmStats. The per-VS modifications  
   the SE contributed (Grzegorz Kornacki) should be imported into ltmStats.pl.  
 
-##deprecated/
+## deprecated/
   Older scripts no longer intended for use. Maintained here only to allow slightly faster
   recovery if a problem is found with the stable version in the middle of an engagement.
 
