@@ -4,7 +4,7 @@
 # Collects numerous statistics from a target BIP-IP while under test
 # writes the output to an excel spreadsheet
 #
-# Copyright, F5 Networks, 2009-2017
+# Copyright, F5 Networks, 2009-2020
 # Written by Jesse Driskill, F5 Networks
 # Contributors
 #   Robby Stahl, F5 Networks
@@ -106,7 +106,7 @@ my $usCycleTime  = $cycleTime * 1_000_000;
 ##
 ## Initialization and environment check
 ##
-
+my $ppsThreshold = 3000;
 my (@dataList, @errorList, @staticList, @rowData, @winSize, %formats);
 my ($clientCurConns, $clientTotConns, $serverCurConns, $serverTotConns);
 my ($cpuUsed, $cpuTicks, $cpuUtil, $cpuPercent, $tmmUtil, $tmmPercent);
@@ -244,13 +244,13 @@ if (!$BYPASS) {
       -nonblocking  => 0,
     );
     die($error."\n") if ($error);
-    &detect_test_netsnmp($watchhost, \%dataOids);
+    &detect_test_netsnmp($watchhost, \%dataOids, $ppsThreshold);
   }
   elsif ($NetSNMP) {
-    &detect_test_netsnmp($session, \%dataOids);
+    &detect_test_netsnmp($session, \%dataOids, $ppsThreshold);
   }
   else {
-    &detect_test_snmpget(\%dataOids, \%snmpOpts);
+    &detect_test_snmpget(\%dataOids, \%snmpOpts, $ppsThreshold);
   } 
 }
 
@@ -309,6 +309,9 @@ do {
     }
   }
 
+  # %cur contains data collected this polling period
+  # %out contains data being written to the CLI
+
   # CPU and TMM time used
   $cur->{cpuTotalTicks}   = sum(@$xlsData{qw/ssCpuRawUser ssCpuRawNice ssCpuRawSystem ssCpuRawIdle/});
   $cur->{cpuIdleTicks}    = $xlsData->{ssCpuRawIdle};
@@ -336,22 +339,14 @@ do {
   $cur->{cPvaPktsOut}     = $xlsData->{pvaClientPktsOut};     # Client PVA packets Out
   $cur->{sPvaPktsIn}      = $xlsData->{pvaServerPktsIn};      # Server PVA packets in
   $cur->{sPvaPktsOut}     = $xlsData->{pvaServerPktsOut};     # Server PVA packets Out
-  $cur->{cBytesIn}        = $cur->{cTmmBytesIn};                          # Client total bytes in
-  $cur->{cBytesOut}       = $cur->{cTmmBytesOut};                         # Client total bytes out
-  $cur->{sBytesIn}        = $cur->{sTmmBytesIn};                          # Server total bytes in
-  $cur->{sBytesOut}       = $cur->{sTmmBytesOut};                         # Server total bytes out
-  $cur->{cPktsIn}         = $cur->{cTmmPktsIn};                           # Client total packets in
-  $cur->{cPktsOut}        = $cur->{cTmmPktsOut};                          # Client total packets out
-  $cur->{sPktsIn}         = $cur->{sTmmPktsIn};                           # Server total packets in
-  $cur->{sPktsOut}        = $cur->{sTmmPktsOut};                          # Server total packets out
-  #$cur->{cBytesIn}        = $cur->{cTmmBytesIn}  + $cur->{cPvaBytesIn};   # Client total bytes in
-  #$cur->{cBytesOut}       = $cur->{cTmmBytesOut} + $cur->{cPvaBytesOut};  # Client total bytes out
-  #$cur->{sBytesIn}        = $cur->{sTmmBytesIn}  + $cur->{sPvaBytesIn};   # Server total bytes in
-  #$cur->{sBytesOut}       = $cur->{sTmmBytesOut} + $cur->{sPvaBytesOut};  # Server total bytes out
-  #$cur->{cPktsIn}         = $cur->{cTmmPktsIn}   + $cur->{cPvaPktsIn};    # Client total packets in
-  #$cur->{cPktsOut}        = $cur->{cTmmPktsOut}  + $cur->{cPvaPktsOut};   # Client total packets out
-  #$cur->{sPktsIn}         = $cur->{sTmmPktsIn}   + $cur->{sPvaPktsIn};    # Server total packets in
-  #$cur->{sPktsOut}        = $cur->{sTmmPktsOut}  + $cur->{sPvaPktsOut};   # Server total packets out
+  $cur->{cBytesIn}        = $cur->{cTmmBytesIn};              # Client total bytes in
+  $cur->{cBytesOut}       = $cur->{cTmmBytesOut};             # Client total bytes out
+  $cur->{sBytesIn}        = $cur->{sTmmBytesIn};              # Server total bytes in
+  $cur->{sBytesOut}       = $cur->{sTmmBytesOut};             # Server total bytes out
+  $cur->{cPktsIn}         = $cur->{cTmmPktsIn};               # Client total packets in
+  $cur->{cPktsOut}        = $cur->{cTmmPktsOut};              # Client total packets out
+  $cur->{sPktsIn}         = $cur->{sTmmPktsIn};               # Server total packets in
+  $cur->{sPktsOut}        = $cur->{sTmmPktsOut};              # Server total packets out
   $cur->{cpuUtil}         = sprintf("%.2f", cpu_util(delta("cpuTotalTicks"), delta("cpuIdleTicks")));
   $cur->{tmmUtil}         = sprintf("%.2f", cpu_util(delta("tmmTotal"), delta("tmmIdle")));
   $cur->{runTime}         = $runTime;
@@ -382,11 +377,11 @@ do {
     }
     else {
 format STDOUT_TOP =
-@>>>>>> @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+@>>>>>> @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>>> @>>>>>>>
 "Time", "sysCPU", "tmmCPU", "Mem (MB)", "C-CPS", "S-CPS", "Client CC", "Server CC", "In/Mbs", "Out/Mbs"
 .
 format =
-@###.## @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>> @>>>>>>>
+@###.## @>>>>>> @>>>>>> @>>>>>>>> @>>>>>> @>>>>>> @>>>>>>>>> @>>>>>>>>> @>>>>>>> @>>>>>>>
 @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns cCurConns sCurConns cBitsIn cBitsOut/}
 .
 write;
@@ -512,7 +507,7 @@ sub cpu_util        { return ($_[0] == 0) ? 0 : (($_[0] - $_[1]) / $_[0]) * 100 
 sub detect_test_snmpget() {
   my $oids = shift;
   my $opts = shift;
-  my $pkts = 3000;
+  my $pkts = shift;
 
   print "\nWaiting for test to begin...\n";
 
@@ -533,7 +528,7 @@ sub detect_test_snmpget() {
 sub detect_test_netsnmp() {
   my $snmp = shift;
   my $oids = shift;
-  my $pkts = 3000;
+  my $pkts = shift;
 
   print "\nWaiting for test to begin...\n";
 
@@ -707,16 +702,12 @@ sub get_f5_oids() {
       'tmmClientPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.4.0',
       'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.8.0',
       'tmmClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.9.0',
-      #'tmmClientTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.7.0',
-      #'tmmClientCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.8.0',
       'tmmServerBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.10.0',
       'tmmServerBytesOut'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.12.0',
       'tmmServerPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.9.0',
       'tmmServerPktsOut'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.11.0',
       'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.15.0',
       'tmmServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.21.16.0',
-      #'tmmServerTotConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.14.0',
-      #'tmmServerCurConns'       => '.1.3.6.1.4.1.3375.2.1.1.2.1.15.0',
       'sysStatHttpRequests'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.56.0',
       'pvaClientPktsIn'         => '.1.3.6.1.4.1.3375.2.1.1.2.1.16.0',
       'pvaClientBytesIn'        => '.1.3.6.1.4.1.3375.2.1.1.2.1.17.0',
@@ -746,8 +737,6 @@ sub get_static_oids() {
   my %oidlist = ( 'ltmVersion'   => '.1.3.6.1.4.1.3375.2.1.4.2.0',
                   'ltmBuild'     => '.1.3.6.1.4.1.3375.2.1.4.3.0',
                   'platform'     => '.1.3.6.1.4.1.3375.2.1.3.3.1.0',
-                  #'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.38.0',
-                  #'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.1.44.0',
                   'cpuCount'     => '.1.3.6.1.4.1.3375.2.1.1.2.1.39.0',   # active blades only
                   'totalMemory'  => '.1.3.6.1.4.1.3375.2.1.1.2.21.28.0',  # active blades only
                   'hostName'     => '.1.3.6.1.4.1.3375.2.1.6.2.0',
@@ -906,6 +895,8 @@ sub mk_charts() {
   );
 ## Removing the server-side throughput data from the charts.
 ## It's unhelpful and clutters the chart.
+## Preserving the code for those few situations that warrant it.
+## TODO: Convert this sloppy approach to a cli switch
 #  $chtTput->add_series(
 #    name        => '=chart_data!$G$1',
 #    values      => '=chart_data!$G$2:$G$'.($numRows-1),
@@ -942,6 +933,8 @@ sub mk_charts() {
     line        => { color => 'red' },
     marker      => { type  => 'none' },
   );
+## Same situation as the server-side throughput (see above)
+## TODO: Convert this to a CLI switch rather than just commenting it out
 #  $chtPPS->add_series(  # Server Pkts In
 #    name        => '=chart_data!$Q$1',
 #    values      => '=chart_data!$Q$2:$Q$'.($numRows-1),
@@ -1066,7 +1059,7 @@ sub commify() {
 }
 
 
-# print CLI output using printf + Term:: Readkey
+# print CLI output using printf + Term::Readkey
 sub print_cli() {
   my $out = shift;
 
@@ -1159,4 +1152,4 @@ END
 }
 
 
-# ex: syntax=perl
+# vim: set syntax=perl tabstop=2 expandtab:
