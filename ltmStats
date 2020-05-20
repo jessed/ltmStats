@@ -1,8 +1,10 @@
 #! /usr/bin/env perl
 
 #####################################################
-# Collects numerous statistics from a target BIP-IP while under test
-# writes the output to an excel spreadsheet
+# Collects numerous statistics from a target BIP-IP and 
+# writes the output to the CLI and (optionally) an excel spreadsheet.
+#
+# https://github.com/jessed/ltmStats
 #
 # Copyright, F5 Networks, 2009-2020
 # Written by Jesse Driskill, F5 Networks
