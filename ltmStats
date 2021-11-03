@@ -1071,7 +1071,7 @@ sub print_cli() {
       printf("%6s% 7s% 7s% 10s% 8s% 8s% 10s% 9s% 9s% 9s% 9s% 9s% 9s\n",
           "RunTime", "sCPU", "tCPU", "Mem (MB)", "cCPS", "sCPS", "HTTP", "cConns", "sConns", "cIn/Mbs", "cOut/Mbs", "cPPS In", "cPPS Out");
     }
-      printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 8d% 10d% 9d% 9d% 9d% 9d% 9d\n",
+      printf("%7.1f% 7.2f% 7.2f% 10d% 8d% 8d% 10d% 9d% 9d% 9d% 9d% 9d% 9d\n",
           @$out{qw/runTime cpuUtil tmmUtil memUsed cNewConns sNewConns httpReq cCurConns sCurConns cBitsIn cBitsOut cPktsIn cPktsOut/})
   }
   elsif ($VERBOSE == 0 && $PRETTY == 0) {
