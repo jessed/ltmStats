@@ -68,9 +68,15 @@ if ($testLen == 0) {
   else                      { $testLen = 130;   }
 }
 
+# If xlsx output is requested but ExcelWriterXLSX is not present, log a warning
+if (!$ExcelWriterXLSX && $xlsxName != "/dev/null") {
+  print "WARNING: xlsx output requested, but module 'Excel::Writer::XLSX' not found.\n";
+  print "         xsls file will NOT be created.\n";
+}
+
 # The signal handler will throw an error if the output files ($XLSXOUT and $JSONOUT)
 # aren't defined. Cosmetic, but irritating.
-#$DEBUG      = ($opts{'D'} ? 1 : 0);
+$DEBUG      = ($opts{'D'} ? 1 : 0);
 $XLSXOUT    = ($opts{'o'} ? 1 : 0);
 $JSONOUT    = ($opts{'j'} ? 1 : 0);
 $VERBOSE    = ($opts{'v'} ? 1 : 0);
