@@ -69,7 +69,7 @@ if ($testLen == 0) {
 }
 
 # If xlsx output is requested but ExcelWriterXLSX is not present, log a warning
-if (!$ExcelWriterXLSX && $xlsxName != "/dev/null") {
+if (!$ExcelWriterXLSX && $xlsxName !=  /!\/dev\/null/) {
   print "WARNING: xlsx output requested, but module 'Excel::Writer::XLSX' not found.\n";
   print "         xsls file will NOT be created.\n";
 }
