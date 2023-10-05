@@ -33,14 +33,9 @@ LTM statistics collection via SNMP. Outputs data to CLI in realtime and to xlsx 
   Main/stable version
 
 ## other/
-  summarize_tests.py  
-  Scans the current directory for ltmStats output (xlsx), reads all the files and 
-  creates summarized output xlsx.
+*  summarize_tests.py  
+   Scans the current directory for ltmStats output (xlsx), reads all the files and creates summarized output xlsx.
 
-  ltmStats-vipStats.pl - *Contributed by Gregorz Kornacki*   
-  An SE-contributed version of ltmStats.pl that writes per-virtual-server   
-  data to the spreadsheet. The version of ltmStats.pl that this is based  
-  on pre-dates several recent updates, and as a result does not   
-  incorporate the latest options in ltmStats. The per-VS modifications  
-  the SE contributed (Grzegorz Kornacki) should be imported into ltmStats.pl.  
+*  ltmStats-vipStats.pl - *Contributed by Gregorz Kornacki*   
+   An SE-contributed version of ltmStats.pl that writes per-virtual-server data to the spreadsheet. The version of ltmStats.pl that this is based on pre-dates several recent updates, and as a result does not incorporate the latest options in ltmStats. There is an open enhancement to integrate the per-VS modifications into ltmStats.  
 
